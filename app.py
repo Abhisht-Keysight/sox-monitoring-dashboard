@@ -4,243 +4,251 @@ import os
 from datetime import datetime
 import plotly.express as px
 
-# -----------------------------
+# ---------------------------------------------------
 # PAGE CONFIG
-# -----------------------------
+# ---------------------------------------------------
 
 st.set_page_config(
-    page_title="SOX Control Monitoring",
+    page_title="SOX Analytics Platform",
     page_icon="📊",
     layout="wide"
 )
 
-# -----------------------------
-# CONFIG
-# -----------------------------
-
-CONTROL_ID = "Control ID"
-STATUS = "Status"
-
-DATA_DIR = "data"
-VERSIONS_DIR = os.path.join(DATA_DIR, "versions")
-HISTORY_FILE = os.path.join(DATA_DIR, "history.csv")
-
-os.makedirs(VERSIONS_DIR, exist_ok=True)
-
-# -----------------------------
-# CUSTOM CSS (UI IMPROVEMENT)
-# -----------------------------
+# ---------------------------------------------------
+# CUSTOM STYLING
+# ---------------------------------------------------
 
 st.markdown("""
 <style>
 
-.main-title {
-    font-size:40px;
-    font-weight:700;
+body {
+background-color:#f5f7fb;
 }
 
-.metric-card {
-    background-color:#f7f9fc;
-    padding:20px;
-    border-radius:10px;
-    text-align:center;
+.header{
+background:linear-gradient(90deg,#0f172a,#1e3a8a);
+padding:30px;
+border-radius:12px;
+color:white;
+margin-bottom:25px;
+}
+
+.metric-card{
+background:white;
+padding:20px;
+border-radius:10px;
+box-shadow:0px 3px 8px rgba(0,0,0,0.08);
 }
 
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------
-# SAVE DASHBOARD VERSION
-# -----------------------------
-
-def save_dashboard_version(df):
-
-    today = datetime.today().strftime("%Y-%m-%d")
-
-    file_path = os.path.join(
-        VERSIONS_DIR,
-        f"{today}_dashboard.xlsx"
-    )
-
-    df.to_excel(file_path, index=False)
-
-# -----------------------------
-# GET PREVIOUS VERSION
-# -----------------------------
-
-def get_previous_version():
-
-    files = sorted(os.listdir(VERSIONS_DIR))
-
-    if len(files) < 1:
-        return None
-
-    latest = os.path.join(VERSIONS_DIR, files[-1])
-
-    return pd.read_excel(latest)
-
-# -----------------------------
-# UPDATE HISTORY METRICS
-# -----------------------------
-
-def update_history(df):
-
-    metrics = {
-        "date": datetime.today().date(),
-        "total_controls": len(df),
-        "open": len(df[df[STATUS] == "Open"]),
-        "closed": len(df[df[STATUS] == "Closed"])
-    }
-
-    new_row = pd.DataFrame([metrics])
-
-    if os.path.exists(HISTORY_FILE):
-
-        hist = pd.read_csv(HISTORY_FILE)
-        hist = pd.concat([hist, new_row], ignore_index=True)
-
-    else:
-
-        hist = new_row
-
-    hist.to_csv(HISTORY_FILE, index=False)
-
-    return hist
-
-# -----------------------------
-# COMPARE REPORTS
-# -----------------------------
-
-def compare_reports(old_df, new_df):
-
-    if old_df is None:
-        return pd.DataFrame()
-
-    old_df = old_df.set_index(CONTROL_ID)
-    new_df = new_df.set_index(CONTROL_ID)
-
-    movements = []
-
-    for cid in old_df.index.intersection(new_df.index):
-
-        old_status = old_df.loc[cid][STATUS]
-        new_status = new_df.loc[cid][STATUS]
-
-        if old_status != new_status:
-
-            movements.append({
-                "Control ID": cid,
-                "Old Status": old_status,
-                "New Status": new_status
-            })
-
-    return pd.DataFrame(movements)
-
-# -----------------------------
-# CHARTS
-# -----------------------------
-
-def status_pie(df):
-
-    fig = px.pie(
-        df,
-        names=STATUS,
-        title="Control Status Distribution",
-        hole=0.4
-    )
-
-    return fig
-
-def trend_chart(history):
-
-    fig = px.line(
-        history,
-        x="date",
-        y=["open", "closed"],
-        markers=True,
-        title="Daily Control Status Trend"
-    )
-
-    return fig
-
-# -----------------------------
+# ---------------------------------------------------
 # HEADER
-# -----------------------------
+# ---------------------------------------------------
 
-st.markdown(
-    "<div class='main-title'>📊 SOX Control Monitoring Dashboard</div>",
-    unsafe_allow_html=True
+st.markdown("""
+<div class="header">
+<h1>SOX Control Monitoring Platform</h1>
+<p>Internal Audit Analytics Dashboard</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------
+# SIDEBAR NAVIGATION
+# ---------------------------------------------------
+
+st.sidebar.title("Navigation")
+
+page = st.sidebar.radio(
+    "Select Page",
+    [
+        "Executive Dashboard",
+        "Control Monitoring",
+        "Control Analytics",
+        "Raw Data"
+    ]
 )
 
-st.write("Upload today's SOX dashboard to detect control changes and monitor trends.")
+# ---------------------------------------------------
+# DATA STORAGE
+# ---------------------------------------------------
 
-# -----------------------------
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# ---------------------------------------------------
 # FILE UPLOAD
-# -----------------------------
+# ---------------------------------------------------
 
-uploaded = st.file_uploader(
+uploaded = st.sidebar.file_uploader(
     "Upload SOX Dashboard",
     type=["xlsx"]
 )
 
 if uploaded:
 
-    new_df = pd.read_excel(uploaded)
+    df = pd.read_excel(uploaded)
 
-    st.subheader("Dashboard Preview")
-    st.dataframe(new_df)
+    total_controls = len(df)
+    open_controls = len(df[df["Status"] == "Open"])
+    closed_controls = len(df[df["Status"] == "Closed"])
 
-    # -----------------------------
-    # PREVIOUS VERSION
-    # -----------------------------
+else:
 
-    old_df = get_previous_version()
+    df = pd.DataFrame()
+    total_controls = 0
+    open_controls = 0
+    closed_controls = 0
 
-    movements = compare_reports(old_df, new_df)
+# ---------------------------------------------------
+# EXECUTIVE DASHBOARD
+# ---------------------------------------------------
 
-    # -----------------------------
-    # METRICS
-    # -----------------------------
+if page == "Executive Dashboard":
 
-    open_controls = len(new_df[new_df[STATUS] == "Open"])
-    closed_controls = len(new_df[new_df[STATUS] == "Closed"])
+    col1,col2,col3 = st.columns(3)
 
-    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Controls", total_controls)
 
-    col1.metric("Total Controls", len(new_df))
-    col2.metric("Open Controls", open_controls)
-    col3.metric("Closed Controls", closed_controls)
+    with col2:
+        st.metric("Open Controls", open_controls)
 
-    # -----------------------------
-    # STATUS MOVEMENTS
-    # -----------------------------
+    with col3:
+        st.metric("Closed Controls", closed_controls)
 
-    if not movements.empty:
+    st.markdown("---")
 
-        st.subheader("Status Changes Detected")
+    if not df.empty:
 
-        st.dataframe(movements)
+        colA,colB = st.columns(2)
 
-    # -----------------------------
-    # SAVE VERSION
-    # -----------------------------
+        with colA:
 
-    save_dashboard_version(new_df)
+            fig = px.pie(
+                df,
+                names="Status",
+                hole=0.45,
+                title="Control Status Distribution",
+                color_discrete_sequence=[
+                    "#ef4444",
+                    "#22c55e",
+                    "#3b82f6"
+                ]
+            )
 
-    history = update_history(new_df)
+            st.plotly_chart(fig, use_container_width=True)
 
-    # -----------------------------
-    # DASHBOARD
-    # -----------------------------
+        with colB:
 
-    st.subheader("Analytics Dashboard")
+            status_counts = df["Status"].value_counts().reset_index()
 
-    colA, colB = st.columns(2)
+            fig2 = px.bar(
+                status_counts,
+                x="Status",
+                y="count",
+                title="Status Breakdown",
+                color="Status"
+            )
 
-    with colA:
-        st.plotly_chart(status_pie(new_df), use_container_width=True)
+            st.plotly_chart(fig2, use_container_width=True)
 
-    with colB:
-        st.plotly_chart(trend_chart(history), use_container_width=True)
+    else:
 
-    st.success("Dashboard processed successfully and version stored.")
+        st.info("Upload a SOX dashboard file to begin analysis.")
+
+# ---------------------------------------------------
+# CONTROL MONITORING
+# ---------------------------------------------------
+
+elif page == "Control Monitoring":
+
+    st.subheader("Control Status Table")
+
+    if not df.empty:
+
+        status_filter = st.selectbox(
+            "Filter by Status",
+            ["All"] + list(df["Status"].unique())
+        )
+
+        if status_filter != "All":
+
+            filtered = df[df["Status"] == status_filter]
+
+        else:
+
+            filtered = df
+
+        st.dataframe(filtered)
+
+    else:
+
+        st.info("Upload dashboard data.")
+
+# ---------------------------------------------------
+# CONTROL ANALYTICS
+# ---------------------------------------------------
+
+elif page == "Control Analytics":
+
+    if not df.empty:
+
+        tab1,tab2 = st.tabs([
+            "Control Trends",
+            "Owner Analysis"
+        ])
+
+        with tab1:
+
+            status_counts = df["Status"].value_counts().reset_index()
+
+            fig = px.bar(
+                status_counts,
+                x="Status",
+                y="count",
+                color="Status",
+                title="Control Status Overview"
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+        with tab2:
+
+            if "Owner" in df.columns:
+
+                owner_counts = df["Owner"].value_counts().reset_index()
+
+                fig2 = px.bar(
+                    owner_counts,
+                    x="Owner",
+                    y="count",
+                    title="Controls by Owner"
+                )
+
+                st.plotly_chart(fig2, use_container_width=True)
+
+            else:
+
+                st.info("Owner column not available in dataset.")
+
+    else:
+
+        st.info("Upload dashboard data.")
+
+# ---------------------------------------------------
+# RAW DATA
+# ---------------------------------------------------
+
+elif page == "Raw Data":
+
+    if not df.empty:
+
+        with st.expander("View Uploaded Dashboard"):
+
+            st.dataframe(df)
+
+    else:
+
+        st.info("Upload dashboard data.")
