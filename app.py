@@ -152,7 +152,7 @@ if uploaded:
     # Compare reports
     movements = compare_reports(old_df, new_df)
 
-    if not movements.empty:
+    if movements is not None and not movements.empty:
 
         st.subheader("Status Movements Detected")
         st.dataframe(movements)
@@ -174,3 +174,4 @@ if uploaded:
         st.plotly_chart(trend_chart(history), use_container_width=True)
 
     st.success("Dashboard version stored successfully.")
+
