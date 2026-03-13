@@ -5,27 +5,27 @@ from datetime import datetime
 import plotly.express as px
 from streamlit_plotly_events import plotly_events
 
-# ----------------------------
+# -----------------------------------------------------
 # PAGE CONFIG
-# ----------------------------
+# -----------------------------------------------------
 
 st.set_page_config(
     page_title="SOX Control Monitoring Platform",
     layout="wide"
 )
 
-# ----------------------------
+# -----------------------------------------------------
 # STORAGE CONFIG
-# ----------------------------
+# -----------------------------------------------------
 
 UPLOAD_DIR = "data/uploads"
 LOG_FILE = "data/upload_log.csv"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ----------------------------
+# -----------------------------------------------------
 # HEADER
-# ----------------------------
+# -----------------------------------------------------
 
 st.markdown("""
 <div style="
@@ -40,9 +40,9 @@ margin-bottom:20px;
 </div>
 """, unsafe_allow_html=True)
 
-# ----------------------------
-# SIDEBAR
-# ----------------------------
+# -----------------------------------------------------
+# SIDEBAR NAVIGATION
+# -----------------------------------------------------
 
 st.sidebar.title("Navigation")
 
@@ -61,9 +61,9 @@ uploaded_file = st.sidebar.file_uploader(
     type=["xlsx"]
 )
 
-# ----------------------------
-# FILE SAVE FUNCTION
-# ----------------------------
+# -----------------------------------------------------
+# SAVE UPLOADED FILE
+# -----------------------------------------------------
 
 def save_uploaded_file(uploaded_file):
 
@@ -78,9 +78,10 @@ def save_uploaded_file(uploaded_file):
 
     return filename, path
 
-# ----------------------------
-# UPDATE LOG
-# ----------------------------
+
+# -----------------------------------------------------
+# UPDATE UPLOAD LOG
+# -----------------------------------------------------
 
 def update_upload_log(filename, df):
 
@@ -104,25 +105,31 @@ def update_upload_log(filename, df):
 
     log.to_csv(LOG_FILE, index=False)
 
-# ----------------------------
-# LOAD PREVIOUS VERSION
-# ----------------------------
+
+# -----------------------------------------------------
+# LOAD PREVIOUS VERSION (SAFE)
+# -----------------------------------------------------
 
 def load_previous_file():
 
     files = sorted(os.listdir(UPLOAD_DIR))
 
-    if len(files) < 2:
+    files = [f for f in files if f.endswith(".xlsx")]
 
+    if len(files) < 2:
         return None
 
     previous_file = os.path.join(UPLOAD_DIR, files[-2])
 
-    return pd.read_excel(previous_file)
+    try:
+        return pd.read_excel(previous_file)
+    except:
+        return None
 
-# ----------------------------
+
+# -----------------------------------------------------
 # COMPARE VERSIONS
-# ----------------------------
+# -----------------------------------------------------
 
 def compare_versions(old_df, new_df):
 
@@ -146,9 +153,10 @@ def compare_versions(old_df, new_df):
 
     return pd.DataFrame(changes)
 
-# ----------------------------
-# HANDLE UPLOAD
-# ----------------------------
+
+# -----------------------------------------------------
+# HANDLE FILE UPLOAD
+# -----------------------------------------------------
 
 df = None
 changes = pd.DataFrame()
@@ -167,16 +175,18 @@ if uploaded_file:
 
         changes = compare_versions(previous_df, df)
 
-# ----------------------------
+# -----------------------------------------------------
 # EXECUTIVE DASHBOARD
-# ----------------------------
+# -----------------------------------------------------
 
 if page == "Executive Dashboard":
 
     if df is not None:
 
         total_controls = len(df)
+
         open_controls = len(df[df["Status"] == "Open"])
+
         closed_controls = len(df[df["Status"] == "Closed"])
 
         col1,col2,col3 = st.columns(3)
@@ -227,9 +237,10 @@ if page == "Executive Dashboard":
 
         st.info("Upload a SOX dashboard to begin analysis.")
 
-# ----------------------------
+
+# -----------------------------------------------------
 # CHANGE ANALYSIS
-# ----------------------------
+# -----------------------------------------------------
 
 elif page == "Change Analysis":
 
@@ -262,9 +273,10 @@ elif page == "Change Analysis":
 
         st.info("No changes detected or only one upload exists.")
 
-# ----------------------------
+
+# -----------------------------------------------------
 # UPLOAD HISTORY
-# ----------------------------
+# -----------------------------------------------------
 
 elif page == "Upload History":
 
@@ -292,9 +304,10 @@ elif page == "Upload History":
 
         st.info("No uploads recorded yet.")
 
-# ----------------------------
+
+# -----------------------------------------------------
 # RAW DATA
-# ----------------------------
+# -----------------------------------------------------
 
 elif page == "Raw Data":
 
