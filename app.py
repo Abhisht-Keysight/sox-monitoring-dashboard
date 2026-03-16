@@ -11,7 +11,6 @@ st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 UPLOAD_DIR = "data/uploads"
 OUTPUT_DIR = "data/output"
 LOG_FILE = "data/upload_log.csv"
-CHANGE_FILE = "data/last_change_analysis.csv"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -22,7 +21,7 @@ if "df" not in st.session_state:
     st.session_state.df = None
 
 if "changes" not in st.session_state:
-    st.session_state.changes = pd.DataFrame()
+    st.session_state.changes = None
 
 # ---------------- HEADER ---------------- #
 
@@ -107,7 +106,7 @@ def update_log(filename, df):
 
     log.to_csv(LOG_FILE, index=False)
 
-# ---------------- LOAD LATEST FILES ---------------- #
+# ---------------- LOAD FILES ---------------- #
 
 def load_latest_files():
 
@@ -123,6 +122,7 @@ def load_latest_files():
     prev_df = None
 
     if len(files) > 1:
+
         prev_file = os.path.join(UPLOAD_DIR, files[-2])
         prev_df = pd.read_excel(prev_file, sheet_name="IA data")
 
@@ -165,6 +165,7 @@ def compare_versions(old_df, new_df):
     new_tests = new_df.index.difference(old_df.index)
 
     for test in new_tests:
+
         changes.append({
             "Test Name": test,
             "Field Changed": "New Test",
@@ -175,6 +176,7 @@ def compare_versions(old_df, new_df):
     removed_tests = old_df.index.difference(new_df.index)
 
     for test in removed_tests:
+
         changes.append({
             "Test Name": test,
             "Field Changed": "Removed Test",
@@ -213,6 +215,7 @@ def generate_highlight_file(changes):
             for r in range(2, ws.max_row + 1):
 
                 if ws.cell(r, headers.index("Test Name")+1).value == test:
+
                     ws.cell(r, col).fill = yellow
 
     wb.save(output_path)
@@ -231,35 +234,19 @@ if uploaded_file:
 
     update_log(filename, df)
 
-    latest_df, prev_df = load_latest_files()
-
-    if latest_df is not None and prev_df is not None:
-
-        new_changes = compare_versions(prev_df, latest_df)
-
-        st.session_state.changes = new_changes
-
-        new_changes.to_csv(CHANGE_FILE, index=False)
-
 # ---------------- LOAD DATA ---------------- #
 
 latest_df, prev_df = load_latest_files()
 
 if latest_df is not None:
+
     st.session_state.df = latest_df
 
-if st.session_state.changes.empty and os.path.exists(CHANGE_FILE):
+if latest_df is not None and prev_df is not None:
 
-    try:
-        saved_changes = pd.read_csv(CHANGE_FILE)
+    if st.session_state.changes is None:
 
-        if not saved_changes.empty:
-            st.session_state.changes = saved_changes
-        else:
-            st.session_state.changes = pd.DataFrame()
-
-    except:
-        st.session_state.changes = pd.DataFrame()
+        st.session_state.changes = compare_versions(prev_df, latest_df)
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
@@ -315,51 +302,15 @@ elif page == "Change Analysis":
 
     st.subheader("Changes Since Last Upload")
 
-    if not changes.empty:
+    if changes is not None and not changes.empty:
 
-        col1, col2, col3 = st.columns(3)
+        st.dataframe(changes, use_container_width=True)
 
-        with col1:
-            test_filter = st.multiselect("Test Name", changes["Test Name"].unique())
+        counts = changes["Field Changed"].value_counts()
 
-        with col2:
-            field_filter = st.multiselect("Field Changed", changes["Field Changed"].unique())
+        fig = px.bar(counts, title="Change Distribution")
 
-        with col3:
-            old_filter = st.multiselect("Old Value", changes["Old Value"].astype(str).unique())
-
-        filtered = changes.copy()
-
-        if test_filter:
-            filtered = filtered[filtered["Test Name"].isin(test_filter)]
-
-        if field_filter:
-            filtered = filtered[filtered["Field Changed"].isin(field_filter)]
-
-        if old_filter:
-            filtered = filtered[filtered["Old Value"].isin(old_filter)]
-
-        status_changes = len(filtered[filtered["Field Changed"] == "TESTS__STATUS"])
-        tests_impacted = filtered["Test Name"].nunique()
-        fields_changed = filtered["Field Changed"].nunique()
-
-        k1, k2, k3 = st.columns(3)
-
-        k1.metric("Status Changes", status_changes)
-        k2.metric("Unique Tests Affected", tests_impacted)
-        k3.metric("Fields With Changes", fields_changed)
-
-        st.divider()
-
-        st.dataframe(filtered, use_container_width=True)
-
-        if not filtered.empty:
-
-            counts = filtered["Field Changed"].value_counts()
-
-            fig = px.bar(counts, title="Change Distribution")
-
-            st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
         if st.button("Download Highlighted Excel"):
 
