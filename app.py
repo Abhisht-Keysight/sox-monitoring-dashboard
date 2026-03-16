@@ -17,7 +17,7 @@ LOG_FILE = "data/upload_log.csv"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # -----------------------------------------------------
-# SESSION STATE INIT
+# SESSION STATE
 # -----------------------------------------------------
 
 if "df" not in st.session_state:
@@ -49,10 +49,13 @@ page = st.sidebar.radio(
     ["Executive Dashboard","Change Analysis","Upload History","Raw Data"]
 )
 
-uploaded_file = st.sidebar.file_uploader("Upload SOX Dashboard", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader(
+    "Upload SOX Dashboard",
+    type=["xlsx"]
+)
 
 # -----------------------------------------------------
-# FUNCTIONS
+# FILE SAVE
 # -----------------------------------------------------
 
 def save_uploaded_file(uploaded_file):
@@ -63,18 +66,22 @@ def save_uploaded_file(uploaded_file):
 
     path = os.path.join(UPLOAD_DIR, filename)
 
-    with open(path,"wb") as f:
+    with open(path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    return filename,path
+    return filename, path
 
 
-def update_upload_log(filename,df):
+# -----------------------------------------------------
+# UPLOAD LOG
+# -----------------------------------------------------
+
+def update_upload_log(filename, df):
 
     entry = {
-        "Upload Time":datetime.now(),
-        "File Name":filename,
-        "Controls":len(df)
+        "Upload Time": datetime.now(),
+        "File Name": filename,
+        "Controls": len(df)
     }
 
     new_row = pd.DataFrame([entry])
@@ -82,61 +89,77 @@ def update_upload_log(filename,df):
     if os.path.exists(LOG_FILE):
 
         log = pd.read_csv(LOG_FILE)
-        log = pd.concat([log,new_row],ignore_index=True)
+        log = pd.concat([log, new_row], ignore_index=True)
 
     else:
 
         log = new_row
 
-    log.to_csv(LOG_FILE,index=False)
+    log.to_csv(LOG_FILE, index=False)
 
+
+# -----------------------------------------------------
+# LOAD LATEST FILES
+# -----------------------------------------------------
 
 def load_latest_files():
 
     files = sorted(os.listdir(UPLOAD_DIR))
     files = [f for f in files if f.endswith(".xlsx")]
 
-    if len(files)==0:
-        return None,None
+    if len(files) == 0:
+        return None, None
 
-    latest = os.path.join(UPLOAD_DIR,files[-1])
-    latest_df = pd.read_excel(latest)
+    latest_file = os.path.join(UPLOAD_DIR, files[-1])
+    latest_df = pd.read_excel(latest_file)
 
-    previous_df=None
+    previous_df = None
 
-    if len(files)>1:
+    if len(files) > 1:
 
-        previous = os.path.join(UPLOAD_DIR,files[-2])
-        previous_df = pd.read_excel(previous)
+        previous_file = os.path.join(UPLOAD_DIR, files[-2])
+        previous_df = pd.read_excel(previous_file)
 
-    return latest_df,previous_df
+    return latest_df, previous_df
 
+
+# -----------------------------------------------------
+# CONTROL COLUMN DETECTION
+# -----------------------------------------------------
 
 def get_control_column(df):
 
-    for col in ["Control Number","Control ID"]:
+    for col in ["Control Number", "Control ID"]:
         if col in df.columns:
             return col
 
     return None
 
 
+# -----------------------------------------------------
+# DATASET VALIDATION
+# -----------------------------------------------------
+
 def validate_dataset(df):
 
     control_col = get_control_column(df)
 
     if control_col is None:
-        st.error("Dataset must contain Control Number or Control ID column")
+        st.error("File must contain Control Number or Control ID column")
         st.stop()
 
     if "Status" not in df.columns:
-        st.error("Dataset must contain Status column")
+        st.error("File must contain Status column")
         st.stop()
 
     return control_col
 
 
-def compare_versions(old_df,new_df):
+# -----------------------------------------------------
+# CHANGE DETECTION
+# -----------------------------------------------------
+
+def compare_versions(old_df, new_df):
 
     control_col = get_control_column(new_df)
 
@@ -146,87 +169,86 @@ def compare_versions(old_df,new_df):
     old_df = old_df.set_index(control_col)
     new_df = new_df.set_index(control_col)
 
-    changes=[]
+    changes = []
 
     common_controls = old_df.index.intersection(new_df.index)
 
     for cid in common_controls:
 
-        old_status = old_df.loc[cid,"Status"]
-        new_status = new_df.loc[cid,"Status"]
+        old_status = old_df.loc[cid, "Status"]
+        new_status = new_df.loc[cid, "Status"]
 
-        if isinstance(old_status,pd.Series):
+        if isinstance(old_status, pd.Series):
             old_status = old_status.iloc[0]
 
-        if isinstance(new_status,pd.Series):
+        if isinstance(new_status, pd.Series):
             new_status = new_status.iloc[0]
 
-        if str(old_status).strip()!=str(new_status).strip():
+        if str(old_status).strip() != str(new_status).strip():
 
             changes.append({
-                "Control":cid,
-                "Change Type":"Status Change",
-                "Old":old_status,
-                "New":new_status
+                "Control": cid,
+                "Change Type": "Status Change",
+                "Old": old_status,
+                "New": new_status
             })
 
-    # detect new controls
     new_controls = new_df.index.difference(old_df.index)
 
     for cid in new_controls:
 
         changes.append({
-            "Control":cid,
-            "Change Type":"New Control",
-            "Old":"N/A",
-            "New":new_df.loc[cid,"Status"]
+            "Control": cid,
+            "Change Type": "New Control",
+            "Old": "N/A",
+            "New": new_df.loc[cid, "Status"]
         })
 
-    # detect removed controls
     removed_controls = old_df.index.difference(new_df.index)
 
     for cid in removed_controls:
 
         changes.append({
-            "Control":cid,
-            "Change Type":"Control Removed",
-            "Old":old_df.loc[cid,"Status"],
-            "New":"N/A"
+            "Control": cid,
+            "Change Type": "Control Removed",
+            "Old": old_df.loc[cid, "Status"],
+            "New": "N/A"
         })
 
     return pd.DataFrame(changes)
 
+
 # -----------------------------------------------------
-# HANDLE FILE UPLOAD
+# HANDLE UPLOAD
 # -----------------------------------------------------
 
 if uploaded_file:
 
-    filename,path = save_uploaded_file(uploaded_file)
+    filename, path = save_uploaded_file(uploaded_file)
 
     df = pd.read_excel(path)
 
     validate_dataset(df)
 
-    update_upload_log(filename,df)
+    update_upload_log(filename, df)
 
 # -----------------------------------------------------
 # LOAD LATEST DATA
 # -----------------------------------------------------
 
-latest_df,previous_df = load_latest_files()
+latest_df, previous_df = load_latest_files()
 
 if latest_df is not None:
     st.session_state.df = latest_df
 
 if latest_df is not None and previous_df is not None:
-    st.session_state.changes = compare_versions(previous_df,latest_df)
+    st.session_state.changes = compare_versions(previous_df, latest_df)
 
 # -----------------------------------------------------
 # EXECUTIVE DASHBOARD
 # -----------------------------------------------------
 
-if page=="Executive Dashboard":
+if page == "Executive Dashboard":
 
     df = st.session_state.df
 
@@ -236,23 +258,23 @@ if page=="Executive Dashboard":
 
         status_counts = df["Status"].value_counts()
 
-        open_controls = status_counts.get("Open",0)
+        open_controls = status_counts.get("Open", 0)
 
         closed_controls = (
-            status_counts.get("Closed",0)+
-            status_counts.get("Complete",0)+
-            status_counts.get("Review Complete",0)
+            status_counts.get("Closed", 0)
+            + status_counts.get("Complete", 0)
+            + status_counts.get("Review Complete", 0)
         )
 
-        col1,col2,col3 = st.columns(3)
+        col1, col2, col3 = st.columns(3)
 
-        col1.metric("Total Controls",total_controls)
-        col2.metric("Open Controls",open_controls)
-        col3.metric("Closed Controls",closed_controls)
+        col1.metric("Total Controls", total_controls)
+        col2.metric("Open Controls", open_controls)
+        col3.metric("Closed Controls", closed_controls)
 
         st.divider()
 
-        colA,colB = st.columns(2)
+        colA, colB = st.columns(2)
 
         with colA:
 
@@ -263,16 +285,16 @@ if page=="Executive Dashboard":
                 title="Control Status Distribution",
                 color="Status",
                 color_discrete_map={
-                    "Open":"#EF4444",
-                    "Closed":"#22C55E",
-                    "Complete":"#22C55E",
-                    "Review Complete":"#3B82F6"
+                    "Open": "#EF4444",
+                    "Closed": "#22C55E",
+                    "Complete": "#22C55E",
+                    "Review Complete": "#3B82F6"
                 }
             )
 
             selected = plotly_events(fig)
 
-            st.plotly_chart(fig,use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
 
             if selected:
 
@@ -280,7 +302,7 @@ if page=="Executive Dashboard":
 
                 st.subheader(f"Controls with status: {status_clicked}")
 
-                st.dataframe(df[df["Status"]==status_clicked])
+                st.dataframe(df[df["Status"] == status_clicked])
 
         with colB:
 
@@ -294,7 +316,7 @@ if page=="Executive Dashboard":
                 title="Status Breakdown"
             )
 
-            st.plotly_chart(fig2,use_container_width=True)
+            st.plotly_chart(fig2, use_container_width=True)
 
     else:
 
@@ -304,7 +326,7 @@ if page=="Executive Dashboard":
 # CHANGE ANALYSIS
 # -----------------------------------------------------
 
-elif page=="Change Analysis":
+elif page == "Change Analysis":
 
     changes = st.session_state.changes
 
@@ -312,23 +334,29 @@ elif page=="Change Analysis":
 
     if not changes.empty:
 
-        col1,col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
-        col1.metric("Total Changes",len(changes))
-        col2.metric("Affected Controls",changes["Control"].nunique())
+        col1.metric("Total Changes", len(changes))
+        col2.metric("Affected Controls", changes["Control"].nunique())
 
         st.dataframe(changes)
 
-        change_counts = changes["Change Type"].value_counts().reset_index()
+        change_counts = changes["Change Type"].value_counts()
+
+        chart_df = pd.DataFrame({
+            "Change Type": change_counts.index,
+            "Count": change_counts.values
+        })
 
         fig = px.bar(
-            change_counts,
-            x="index",
-            y="Change Type",
+            chart_df,
+            x="Change Type",
+            y="Count",
+            color="Change Type",
             title="Detected Changes"
         )
 
-        st.plotly_chart(fig,use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
 
@@ -338,7 +366,7 @@ elif page=="Change Analysis":
 # UPLOAD HISTORY
 # -----------------------------------------------------
 
-elif page=="Upload History":
+elif page == "Upload History":
 
     st.subheader("Dashboard Upload History")
 
@@ -348,13 +376,13 @@ elif page=="Upload History":
 
         st.dataframe(log)
 
-        for _,row in log.iterrows():
+        for _, row in log.iterrows():
 
-            path = os.path.join(UPLOAD_DIR,row["File Name"])
+            path = os.path.join(UPLOAD_DIR, row["File Name"])
 
             if os.path.exists(path):
 
-                with open(path,"rb") as f:
+                with open(path, "rb") as f:
 
                     st.download_button(
                         label=f"Download {row['File Name']}",
@@ -364,13 +392,13 @@ elif page=="Upload History":
 
     else:
 
-        st.info("No uploads recorded.")
+        st.info("No uploads recorded yet.")
 
 # -----------------------------------------------------
 # RAW DATA
 # -----------------------------------------------------
 
-elif page=="Raw Data":
+elif page == "Raw Data":
 
     df = st.session_state.df
 
