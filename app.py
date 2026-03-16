@@ -249,7 +249,17 @@ if latest_df is not None:
     st.session_state.df = latest_df
 
 if st.session_state.changes.empty and os.path.exists(CHANGE_FILE):
-    st.session_state.changes = pd.read_csv(CHANGE_FILE)
+
+    try:
+        saved_changes = pd.read_csv(CHANGE_FILE)
+
+        if not saved_changes.empty:
+            st.session_state.changes = saved_changes
+        else:
+            st.session_state.changes = pd.DataFrame()
+
+    except:
+        st.session_state.changes = pd.DataFrame()
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
