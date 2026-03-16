@@ -164,28 +164,6 @@ def compare_versions(old_df, new_df):
                     "New Value": new
                 })
 
-    new_tests = new_df.index.difference(old_df.index)
-
-    for test in new_tests:
-
-        changes.append({
-            "Test Name": test,
-            "Field Changed": "New Test",
-            "Old Value": "",
-            "New Value": "Added"
-        })
-
-    removed_tests = old_df.index.difference(new_df.index)
-
-    for test in removed_tests:
-
-        changes.append({
-            "Test Name": test,
-            "Field Changed": "Removed Test",
-            "Old Value": "Removed",
-            "New Value": ""
-        })
-
     return pd.DataFrame(changes)
 
 # ---------------- EXPORT ---------------- #
@@ -238,18 +216,20 @@ if uploaded_file:
 
     update_log(filename, df)
 
+    latest_df, prev_df = load_latest_files()
+
+    if latest_df is not None and prev_df is not None:
+
+        st.session_state.changes = compare_versions(prev_df, latest_df)
+
+        st.session_state.df = latest_df
+
 # ---------------- LOAD DATA ---------------- #
 
 latest_df, prev_df = load_latest_files()
 
-if latest_df is not None:
-
+if latest_df is not None and st.session_state.df is None:
     st.session_state.df = latest_df
-
-# ALWAYS recompute comparison if two versions exist
-if latest_df is not None and prev_df is not None:
-
-    st.session_state.changes = compare_versions(prev_df, latest_df)
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
@@ -298,11 +278,45 @@ elif page == "Change Analysis":
 
     st.subheader("Changes Since Last Upload")
 
-    if changes is not None and not changes.empty:
+    if not changes.empty:
 
-        st.dataframe(changes, use_container_width=True)
+        col1, col2, col3 = st.columns(3)
 
-        counts = changes["Field Changed"].value_counts()
+        with col1:
+            test_filter = st.multiselect("Test Name", changes["Test Name"].unique())
+
+        with col2:
+            field_filter = st.multiselect("Field Changed", changes["Field Changed"].unique())
+
+        with col3:
+            old_filter = st.multiselect("Old Value", changes["Old Value"].astype(str).unique())
+
+        filtered = changes.copy()
+
+        if test_filter:
+            filtered = filtered[filtered["Test Name"].isin(test_filter)]
+
+        if field_filter:
+            filtered = filtered[filtered["Field Changed"].isin(field_filter)]
+
+        if old_filter:
+            filtered = filtered[filtered["Old Value"].isin(old_filter)]
+
+        status_changes = len(filtered[filtered["Field Changed"] == "TESTS__STATUS"])
+        tests_impacted = filtered["Test Name"].nunique()
+        fields_changed = filtered["Field Changed"].nunique()
+
+        k1, k2, k3 = st.columns(3)
+
+        k1.metric("Status Changes", status_changes)
+        k2.metric("Unique Tests Affected", tests_impacted)
+        k3.metric("Fields With Changes", fields_changed)
+
+        st.divider()
+
+        st.dataframe(filtered, use_container_width=True)
+
+        counts = filtered["Field Changed"].value_counts()
 
         fig = px.bar(counts, title="Change Distribution")
 
@@ -314,11 +328,8 @@ elif page == "Change Analysis":
 
             with open(path, "rb") as f:
 
-                st.download_button(
-                    "Download Excel",
-                    f,
-                    file_name="highlighted_changes.xlsx"
-                )
+                st.download_button("Download Excel", f,
+                                   file_name="highlighted_changes.xlsx")
 
     else:
 
