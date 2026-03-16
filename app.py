@@ -15,9 +15,7 @@ LOG_FILE="data/upload_log.csv"
 os.makedirs(UPLOAD_DIR,exist_ok=True)
 os.makedirs(OUTPUT_DIR,exist_ok=True)
 
-# --------------------------------------------------
-# SESSION STATE
-# --------------------------------------------------
+# ---------------- SESSION STATE ----------------
 
 if "df" not in st.session_state:
     st.session_state.df=None
@@ -25,9 +23,7 @@ if "df" not in st.session_state:
 if "changes" not in st.session_state:
     st.session_state.changes=pd.DataFrame()
 
-# --------------------------------------------------
-# HEADER
-# --------------------------------------------------
+# ---------------- HEADER ----------------
 
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f172a,#1e3a8a);
@@ -37,9 +33,7 @@ padding:30px;border-radius:12px;color:white;margin-bottom:20px;">
 </div>
 """,unsafe_allow_html=True)
 
-# --------------------------------------------------
-# SIDEBAR
-# --------------------------------------------------
+# ---------------- SIDEBAR ----------------
 
 st.sidebar.title("Navigation")
 
@@ -50,9 +44,7 @@ page=st.sidebar.radio(
 
 uploaded_file=st.sidebar.file_uploader("Upload SOX Dashboard",type=["xlsx"])
 
-# --------------------------------------------------
-# VALIDATE DATA
-# --------------------------------------------------
+# ---------------- VALIDATION ----------------
 
 def validate_dataset(df):
 
@@ -79,9 +71,7 @@ def validate_dataset(df):
         st.error(f"Missing columns: {missing}")
         st.stop()
 
-# --------------------------------------------------
-# SAVE FILE
-# --------------------------------------------------
+# ---------------- SAVE FILE ----------------
 
 def save_file(uploaded_file):
 
@@ -96,9 +86,7 @@ def save_file(uploaded_file):
 
     return filename,path
 
-# --------------------------------------------------
-# UPLOAD LOG
-# --------------------------------------------------
+# ---------------- UPLOAD LOG ----------------
 
 def update_log(filename,df):
 
@@ -121,9 +109,7 @@ def update_log(filename,df):
 
     log.to_csv(LOG_FILE,index=False)
 
-# --------------------------------------------------
-# LOAD FILES
-# --------------------------------------------------
+# ---------------- LOAD FILES ----------------
 
 def load_latest_files():
 
@@ -145,9 +131,7 @@ def load_latest_files():
 
     return latest_df,prev_df
 
-# --------------------------------------------------
-# CHANGE DETECTION
-# --------------------------------------------------
+# ---------------- CHANGE DETECTION ----------------
 
 def compare_versions(old_df,new_df):
 
@@ -205,9 +189,7 @@ def compare_versions(old_df,new_df):
 
     return pd.DataFrame(changes)
 
-# --------------------------------------------------
-# EXCEL HIGHLIGHT EXPORT
-# --------------------------------------------------
+# ---------------- EXCEL HIGHLIGHT EXPORT ----------------
 
 def generate_highlight_file(base_df,changes):
 
@@ -241,9 +223,7 @@ def generate_highlight_file(base_df,changes):
 
     return path
 
-# --------------------------------------------------
-# HANDLE UPLOAD
-# --------------------------------------------------
+# ---------------- HANDLE UPLOAD ----------------
 
 if uploaded_file:
 
@@ -255,9 +235,7 @@ if uploaded_file:
 
     update_log(filename,df)
 
-# --------------------------------------------------
-# LOAD DATA ONLY ONCE
-# --------------------------------------------------
+# ---------------- LOAD DATA ----------------
 
 latest_df,prev_df=load_latest_files()
 
@@ -269,9 +247,7 @@ if latest_df is not None and prev_df is not None and st.session_state.changes.em
 
     st.session_state.changes=compare_versions(prev_df,latest_df)
 
-# --------------------------------------------------
-# EXECUTIVE DASHBOARD
-# --------------------------------------------------
+# ---------------- EXECUTIVE DASHBOARD ----------------
 
 if page=="Executive Dashboard":
 
@@ -308,9 +284,7 @@ if page=="Executive Dashboard":
 
             st.plotly_chart(fig2,use_container_width=True)
 
-# --------------------------------------------------
-# CHANGE ANALYSIS
-# --------------------------------------------------
+# ---------------- CHANGE ANALYSIS ----------------
 
 elif page=="Change Analysis":
 
@@ -357,16 +331,36 @@ elif page=="Change Analysis":
         if old_filter:
             filtered=filtered[filtered["Old Value"].isin(old_filter)]
 
-        st.dataframe(filtered,use_container_width=True)
+        # ---------------- KPI METRICS ----------------
 
-        counts=filtered["Field Changed"].value_counts()
-
-        fig=px.bar(
-        counts,
-        title="Change Distribution"
+        status_changes=len(
+        filtered[filtered["Field Changed"]=="TESTS__STATUS"]
         )
 
-        st.plotly_chart(fig,use_container_width=True)
+        tests_impacted=filtered["Test Name"].nunique() if not filtered.empty else 0
+
+        fields_changed=filtered["Field Changed"].nunique() if not filtered.empty else 0
+
+        k1,k2,k3=st.columns(3)
+
+        k1.metric("Status Changes",status_changes)
+        k2.metric("Unique Tests Affected",tests_impacted)
+        k3.metric("Fields With Changes",fields_changed)
+
+        st.divider()
+
+        st.dataframe(filtered,use_container_width=True)
+
+        if not filtered.empty:
+
+            counts=filtered["Field Changed"].value_counts()
+
+            fig=px.bar(
+            counts,
+            title="Change Distribution"
+            )
+
+            st.plotly_chart(fig,use_container_width=True)
 
         st.divider()
 
@@ -386,9 +380,7 @@ elif page=="Change Analysis":
 
         st.info("Upload at least two dashboards to detect changes")
 
-# --------------------------------------------------
-# UPLOAD HISTORY
-# --------------------------------------------------
+# ---------------- UPLOAD HISTORY ----------------
 
 elif page=="Upload History":
 
@@ -398,9 +390,7 @@ elif page=="Upload History":
 
         st.dataframe(log)
 
-# --------------------------------------------------
-# RAW DATA
-# --------------------------------------------------
+# ---------------- RAW DATA ----------------
 
 elif page=="Raw Data":
 
