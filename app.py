@@ -4,30 +4,26 @@ import os
 from datetime import datetime
 import plotly.express as px
 
-# ---------------------------------------------------
-# CONFIG
-# ---------------------------------------------------
-
 st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 
-UPLOAD_DIR = "data/uploads"
-LOG_FILE = "data/upload_log.csv"
+UPLOAD_DIR="data/uploads"
+LOG_FILE="data/upload_log.csv"
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR,exist_ok=True)
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # SESSION STATE
-# ---------------------------------------------------
+# --------------------------------------------------
 
 if "df" not in st.session_state:
-    st.session_state.df = None
+    st.session_state.df=None
 
 if "changes" not in st.session_state:
-    st.session_state.changes = pd.DataFrame()
+    st.session_state.changes=pd.DataFrame()
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # HEADER
-# ---------------------------------------------------
+# --------------------------------------------------
 
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f172a,#1e3a8a);
@@ -35,121 +31,126 @@ padding:30px;border-radius:12px;color:white;margin-bottom:20px;">
 <h1>SOX Control Monitoring Platform</h1>
 <p>Internal Audit Analytics Dashboard</p>
 </div>
-""", unsafe_allow_html=True)
+""",unsafe_allow_html=True)
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # SIDEBAR
-# ---------------------------------------------------
+# --------------------------------------------------
 
 st.sidebar.title("Navigation")
 
-page = st.sidebar.radio(
+page=st.sidebar.radio(
     "Select Page",
     ["Executive Dashboard","Change Analysis","Upload History","Raw Data"]
 )
 
-uploaded_file = st.sidebar.file_uploader(
+uploaded_file=st.sidebar.file_uploader(
     "Upload SOX Dashboard",
     type=["xlsx"]
 )
 
-# ---------------------------------------------------
-# DATASET VALIDATION
-# ---------------------------------------------------
+# --------------------------------------------------
+# VALIDATION
+# --------------------------------------------------
 
 def validate_dataset(df):
 
-    required = [
-        "Project",
-        "Task",
-        "Status",
-        "Assignee",
-        "Reviewer",
-        "ID",
-        "Reliance",
-        "Due Date"
+    required=[
+        "PROCESS_UID",
+        "CYCLE",
+        "Test Name",
+        "TESTS__TEST_SECTION",
+        "TESTS__STATUS",
+        "TESTS__EFFECTIVENESS",
+        "TESTS__TESTER_USER",
+        "TESTS__REVIEWER_USER",
+        "TESTS__SECONDARY_REVIEWER_USER",
+        "TESTS__START_DATE",
+        "TESTS__END_DATE",
+        "TESTS__DUE_DATE",
+        "PWC Reliance",
+        "Audit Team"
     ]
 
-    missing = [c for c in required if c not in df.columns]
+    missing=[c for c in required if c not in df.columns]
 
     if missing:
         st.error(f"Missing columns: {missing}")
         st.stop()
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # SAVE FILE
-# ---------------------------------------------------
+# --------------------------------------------------
 
 def save_file(uploaded_file):
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp=datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    filename = f"{timestamp}_sox_dashboard.xlsx"
+    filename=f"{timestamp}_sox_dashboard.xlsx"
 
-    path = os.path.join(UPLOAD_DIR, filename)
+    path=os.path.join(UPLOAD_DIR,filename)
 
     with open(path,"wb") as f:
         f.write(uploaded_file.getbuffer())
 
     return filename,path
 
-# ---------------------------------------------------
-# UPLOAD LOG
-# ---------------------------------------------------
+# --------------------------------------------------
+# LOG
+# --------------------------------------------------
 
 def update_log(filename,df):
 
-    entry = {
+    entry={
         "Upload Time":datetime.now(),
         "File Name":filename,
-        "Tasks":len(df)
+        "Tests":len(df)
     }
 
-    new_row = pd.DataFrame([entry])
+    new=pd.DataFrame([entry])
 
     if os.path.exists(LOG_FILE):
 
-        log = pd.read_csv(LOG_FILE)
-        log = pd.concat([log,new_row],ignore_index=True)
+        log=pd.read_csv(LOG_FILE)
+        log=pd.concat([log,new],ignore_index=True)
 
     else:
 
-        log = new_row
+        log=new
 
     log.to_csv(LOG_FILE,index=False)
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # LOAD FILES
-# ---------------------------------------------------
+# --------------------------------------------------
 
 def load_latest_files():
 
-    files = sorted(os.listdir(UPLOAD_DIR))
-
-    files = [f for f in files if f.endswith(".xlsx")]
+    files=sorted(os.listdir(UPLOAD_DIR))
+    files=[f for f in files if f.endswith(".xlsx")]
 
     if len(files)==0:
         return None,None
 
-    latest_file = os.path.join(UPLOAD_DIR,files[-1])
-    latest_df = pd.read_excel(latest_file,sheet_name="IA data")
+    latest_file=os.path.join(UPLOAD_DIR,files[-1])
+    latest_df=pd.read_excel(latest_file,sheet_name="IA data")
 
-    previous_df = None
+    previous_df=None
 
     if len(files)>1:
 
-        previous_file = os.path.join(UPLOAD_DIR,files[-2])
-        previous_df = pd.read_excel(previous_file,sheet_name="IA data")
+        previous_file=os.path.join(UPLOAD_DIR,files[-2])
+        previous_df=pd.read_excel(previous_file,sheet_name="IA data")
 
     return latest_df,previous_df
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # CHANGE DETECTION
-# ---------------------------------------------------
+# --------------------------------------------------
 
 def compare_versions(old_df,new_df):
 
-    key="Task"
+    key="Test Name"
 
     old_df[key]=old_df[key].astype(str).str.strip()
     new_df[key]=new_df[key].astype(str).str.strip()
@@ -158,25 +159,31 @@ def compare_versions(old_df,new_df):
     new_df=new_df.set_index(key)
 
     fields=[
-        "Project",
-        "Status",
-        "Assignee",
-        "Reviewer",
-        "ID",
-        "Reliance",
-        "Due Date"
+        "PROCESS_UID",
+        "CYCLE",
+        "TESTS__TEST_SECTION",
+        "TESTS__STATUS",
+        "TESTS__EFFECTIVENESS",
+        "TESTS__TESTER_USER",
+        "TESTS__REVIEWER_USER",
+        "TESTS__SECONDARY_REVIEWER_USER",
+        "TESTS__START_DATE",
+        "TESTS__END_DATE",
+        "TESTS__DUE_DATE",
+        "PWC Reliance",
+        "Audit Team"
     ]
 
     changes=[]
 
     common=old_df.index.intersection(new_df.index)
 
-    for task in common:
+    for test in common:
 
         for field in fields:
 
-            old_val=old_df.loc[task,field]
-            new_val=new_df.loc[task,field]
+            old_val=old_df.loc[test,field]
+            new_val=new_df.loc[test,field]
 
             if isinstance(old_val,pd.Series):
                 old_val=old_val.iloc[0]
@@ -187,39 +194,39 @@ def compare_versions(old_df,new_df):
             if str(old_val).strip()!=str(new_val).strip():
 
                 changes.append({
-                    "Task":task,
+                    "Test Name":test,
                     "Field Changed":field,
                     "Old Value":old_val,
                     "New Value":new_val
                 })
 
-    new_tasks=new_df.index.difference(old_df.index)
+    new_tests=new_df.index.difference(old_df.index)
 
-    for task in new_tasks:
+    for test in new_tests:
 
         changes.append({
-            "Task":task,
-            "Field Changed":"New Task",
+            "Test Name":test,
+            "Field Changed":"New Test",
             "Old Value":"N/A",
             "New Value":"Added"
         })
 
-    removed_tasks=old_df.index.difference(new_df.index)
+    removed_tests=old_df.index.difference(new_df.index)
 
-    for task in removed_tasks:
+    for test in removed_tests:
 
         changes.append({
-            "Task":task,
-            "Field Changed":"Removed Task",
+            "Test Name":test,
+            "Field Changed":"Removed Test",
             "Old Value":"Removed",
             "New Value":"N/A"
         })
 
     return pd.DataFrame(changes)
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # HANDLE UPLOAD
-# ---------------------------------------------------
+# --------------------------------------------------
 
 if uploaded_file:
 
@@ -231,9 +238,9 @@ if uploaded_file:
 
     update_log(filename,df)
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # LOAD DATA
-# ---------------------------------------------------
+# --------------------------------------------------
 
 latest_df,previous_df=load_latest_files()
 
@@ -243,9 +250,9 @@ if latest_df is not None:
 if latest_df is not None and previous_df is not None:
     st.session_state.changes=compare_versions(previous_df,latest_df)
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # EXECUTIVE DASHBOARD
-# ---------------------------------------------------
+# --------------------------------------------------
 
 if page=="Executive Dashboard":
 
@@ -255,16 +262,12 @@ if page=="Executive Dashboard":
 
         total=len(df)
 
-        status_counts=df["Status"].value_counts()
+        status_counts=df["TESTS__STATUS"].value_counts()
 
-        complete=status_counts.get("Complete",0)
-        review_complete=status_counts.get("Review Complete",0)
+        col1,col2=st.columns(2)
 
-        col1,col2,col3=st.columns(3)
-
-        col1.metric("Total Tasks",total)
-        col2.metric("Complete",complete)
-        col3.metric("Review Complete",review_complete)
+        col1.metric("Total Tests",total)
+        col2.metric("Unique Cycles",df["CYCLE"].nunique())
 
         st.divider()
 
@@ -274,9 +277,9 @@ if page=="Executive Dashboard":
 
             fig=px.pie(
                 df,
-                names="Status",
+                names="TESTS__STATUS",
                 hole=0.45,
-                title="Task Status Distribution"
+                title="Test Status Distribution"
             )
 
             st.plotly_chart(fig,use_container_width=True)
@@ -287,9 +290,9 @@ if page=="Executive Dashboard":
 
             fig2=px.bar(
                 status_counts,
-                x="Status",
+                x="TESTS__STATUS",
                 y="count",
-                color="Status",
+                color="TESTS__STATUS",
                 title="Status Breakdown"
             )
 
@@ -299,9 +302,9 @@ if page=="Executive Dashboard":
 
         st.info("Upload dashboard to begin analysis")
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # CHANGE ANALYSIS
-# ---------------------------------------------------
+# --------------------------------------------------
 
 elif page=="Change Analysis":
 
@@ -314,7 +317,7 @@ elif page=="Change Analysis":
         col1,col2=st.columns(2)
 
         col1.metric("Total Changes",len(changes))
-        col2.metric("Affected Tasks",changes["Task"].nunique())
+        col2.metric("Affected Tests",changes["Test Name"].nunique())
 
         st.dataframe(changes)
 
@@ -339,9 +342,9 @@ elif page=="Change Analysis":
 
         st.info("Upload at least two dashboards to detect changes")
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # UPLOAD HISTORY
-# ---------------------------------------------------
+# --------------------------------------------------
 
 elif page=="Upload History":
 
@@ -371,9 +374,9 @@ elif page=="Upload History":
 
         st.info("No uploads recorded")
 
-# ---------------------------------------------------
+# --------------------------------------------------
 # RAW DATA
-# ---------------------------------------------------
+# --------------------------------------------------
 
 elif page=="Raw Data":
 
