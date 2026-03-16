@@ -21,7 +21,7 @@ if "df" not in st.session_state:
     st.session_state.df = None
 
 if "changes" not in st.session_state:
-    st.session_state.changes = None
+    st.session_state.changes = pd.DataFrame()
 
 # ---------------- HEADER ---------------- #
 
@@ -44,7 +44,7 @@ page = st.sidebar.radio(
 
 uploaded_file = st.sidebar.file_uploader("Upload SOX Dashboard", type=["xlsx"])
 
-# ---------------- DATA VALIDATION ---------------- #
+# ---------------- VALIDATION ---------------- #
 
 def validate_dataset(df):
 
@@ -76,7 +76,9 @@ def validate_dataset(df):
 def save_file(uploaded_file):
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
     filename = f"{timestamp}_dashboard.xlsx"
+
     path = os.path.join(UPLOAD_DIR, filename)
 
     with open(path, "wb") as f:
@@ -84,7 +86,7 @@ def save_file(uploaded_file):
 
     return filename, path
 
-# ---------------- UPDATE LOG ---------------- #
+# ---------------- LOG ---------------- #
 
 def update_log(filename, df):
 
@@ -186,7 +188,7 @@ def compare_versions(old_df, new_df):
 
     return pd.DataFrame(changes)
 
-# ---------------- EXPORT EXCEL ---------------- #
+# ---------------- EXPORT ---------------- #
 
 def generate_highlight_file(changes):
 
@@ -194,9 +196,11 @@ def generate_highlight_file(changes):
     files = [f for f in files if f.endswith(".xlsx")]
 
     latest_file = os.path.join(UPLOAD_DIR, files[-1])
+
     output_path = os.path.join(OUTPUT_DIR, "highlighted_changes.xlsx")
 
     wb = load_workbook(latest_file)
+
     ws = wb["IA data"]
 
     yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
@@ -242,11 +246,10 @@ if latest_df is not None:
 
     st.session_state.df = latest_df
 
+# ALWAYS recompute comparison if two versions exist
 if latest_df is not None and prev_df is not None:
 
-    if st.session_state.changes is None:
-
-        st.session_state.changes = compare_versions(prev_df, latest_df)
+    st.session_state.changes = compare_versions(prev_df, latest_df)
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
@@ -276,21 +279,14 @@ if page == "Executive Dashboard":
 
         with colA:
 
-            fig = px.pie(
-                df,
-                names="TESTS__STATUS",
-                hole=0.45,
-                title="Test Status Distribution"
-            )
+            fig = px.pie(df, names="TESTS__STATUS", hole=0.45,
+                         title="Test Status Distribution")
 
             st.plotly_chart(fig, use_container_width=True)
 
         with colB:
 
-            fig2 = px.bar(
-                status_counts,
-                title="Status Breakdown"
-            )
+            fig2 = px.bar(status_counts, title="Status Breakdown")
 
             st.plotly_chart(fig2, use_container_width=True)
 
@@ -328,7 +324,7 @@ elif page == "Change Analysis":
 
         st.info("Upload at least two dashboards to detect changes")
 
-# ---------------- UPLOAD HISTORY ---------------- #
+# ---------------- HISTORY ---------------- #
 
 elif page == "Upload History":
 
