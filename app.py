@@ -107,7 +107,7 @@ def update_upload_log(filename, df):
 
 
 # ----------------------------------------------------
-# LOAD PREVIOUS VERSION
+# LOAD PREVIOUS FILE
 # ----------------------------------------------------
 
 def load_previous_file():
@@ -127,19 +127,39 @@ def load_previous_file():
 
 
 # ----------------------------------------------------
-# VALIDATE DATA
+# DETECT CONTROL COLUMN
+# ----------------------------------------------------
+
+def get_control_column(df):
+
+    possible = ["Control Number", "Control ID"]
+
+    for col in possible:
+        if col in df.columns:
+            return col
+
+    return None
+
+
+# ----------------------------------------------------
+# VALIDATE DATASET
 # ----------------------------------------------------
 
 def validate_dataset(df):
 
-    required = ["Control ID", "Status"]
+    control_col = get_control_column(df)
 
-    missing = [c for c in required if c not in df.columns]
+    if control_col is None:
 
-    if missing:
-
-        st.error(f"Uploaded file missing required columns: {missing}")
+        st.error("Dataset must contain 'Control Number' or 'Control ID' column.")
         st.stop()
+
+    if "Status" not in df.columns:
+
+        st.error("Dataset must contain a 'Status' column.")
+        st.stop()
+
+    return control_col
 
 
 # ----------------------------------------------------
@@ -148,14 +168,16 @@ def validate_dataset(df):
 
 def compare_versions(old_df, new_df):
 
-    required_cols = ["Control ID", "Status"]
+    control_col = get_control_column(new_df)
 
-    for col in required_cols:
-        if col not in old_df.columns or col not in new_df.columns:
-            return pd.DataFrame()
+    if control_col is None:
+        return pd.DataFrame()
 
-    old_df = old_df.set_index("Control ID")
-    new_df = new_df.set_index("Control ID")
+    if control_col not in old_df.columns:
+        return pd.DataFrame()
+
+    old_df = old_df.set_index(control_col)
+    new_df = new_df.set_index(control_col)
 
     changes = []
 
@@ -169,7 +191,7 @@ def compare_versions(old_df, new_df):
         if old_status != new_status:
 
             changes.append({
-                "Control ID": cid,
+                "Control": cid,
                 "Old Status": old_status,
                 "New Status": new_status
             })
@@ -190,7 +212,7 @@ if uploaded_file:
 
     df = pd.read_excel(path)
 
-    validate_dataset(df)
+    control_column = validate_dataset(df)
 
     update_upload_log(filename, df)
 
@@ -199,6 +221,7 @@ if uploaded_file:
     if previous_df is not None:
 
         changes = compare_versions(previous_df, df)
+
 
 # ----------------------------------------------------
 # EXECUTIVE DASHBOARD
@@ -275,7 +298,7 @@ elif page == "Change Analysis":
         col1,col2 = st.columns(2)
 
         col1.metric("Total Changes", len(changes))
-        col2.metric("Affected Controls", changes["Control ID"].nunique())
+        col2.metric("Affected Controls", changes["Control"].nunique())
 
         st.dataframe(changes)
 
@@ -295,7 +318,7 @@ elif page == "Change Analysis":
 
     else:
 
-        st.info("Upload at least two valid dashboards to see changes.")
+        st.info("Upload at least two dashboards to see changes.")
 
 
 # ----------------------------------------------------
