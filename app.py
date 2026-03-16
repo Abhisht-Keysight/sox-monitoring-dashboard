@@ -11,6 +11,7 @@ st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 UPLOAD_DIR = "data/uploads"
 OUTPUT_DIR = "data/output"
 LOG_FILE = "data/upload_log.csv"
+CHANGE_FILE = "data/last_change_analysis.csv"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -122,7 +123,6 @@ def load_latest_files():
     prev_df = None
 
     if len(files) > 1:
-
         prev_file = os.path.join(UPLOAD_DIR, files[-2])
         prev_df = pd.read_excel(prev_file, sheet_name="IA data")
 
@@ -165,7 +165,6 @@ def compare_versions(old_df, new_df):
     new_tests = new_df.index.difference(old_df.index)
 
     for test in new_tests:
-
         changes.append({
             "Test Name": test,
             "Field Changed": "New Test",
@@ -176,7 +175,6 @@ def compare_versions(old_df, new_df):
     removed_tests = old_df.index.difference(new_df.index)
 
     for test in removed_tests:
-
         changes.append({
             "Test Name": test,
             "Field Changed": "Removed Test",
@@ -186,7 +184,7 @@ def compare_versions(old_df, new_df):
 
     return pd.DataFrame(changes)
 
-# ---------------- EXPORT EXCEL WITH HIGHLIGHTS ---------------- #
+# ---------------- EXPORT EXCEL ---------------- #
 
 def generate_highlight_file(changes):
 
@@ -194,11 +192,9 @@ def generate_highlight_file(changes):
     files = [f for f in files if f.endswith(".xlsx")]
 
     latest_file = os.path.join(UPLOAD_DIR, files[-1])
-
     output_path = os.path.join(OUTPUT_DIR, "highlighted_changes.xlsx")
 
     wb = load_workbook(latest_file)
-
     ws = wb["IA data"]
 
     yellow = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
@@ -217,7 +213,6 @@ def generate_highlight_file(changes):
             for r in range(2, ws.max_row + 1):
 
                 if ws.cell(r, headers.index("Test Name")+1).value == test:
-
                     ws.cell(r, col).fill = yellow
 
     wb.save(output_path)
@@ -236,15 +231,25 @@ if uploaded_file:
 
     update_log(filename, df)
 
+    latest_df, prev_df = load_latest_files()
+
+    if latest_df is not None and prev_df is not None:
+
+        new_changes = compare_versions(prev_df, latest_df)
+
+        st.session_state.changes = new_changes
+
+        new_changes.to_csv(CHANGE_FILE, index=False)
+
 # ---------------- LOAD DATA ---------------- #
 
 latest_df, prev_df = load_latest_files()
 
-if latest_df is not None and st.session_state.df is None:
+if latest_df is not None:
     st.session_state.df = latest_df
 
-if latest_df is not None and prev_df is not None and st.session_state.changes.empty:
-    st.session_state.changes = compare_versions(prev_df, latest_df)
+if st.session_state.changes.empty and os.path.exists(CHANGE_FILE):
+    st.session_state.changes = pd.read_csv(CHANGE_FILE)
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
@@ -305,22 +310,13 @@ elif page == "Change Analysis":
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            test_filter = st.multiselect(
-                "Test Name",
-                options=changes["Test Name"].unique()
-            )
+            test_filter = st.multiselect("Test Name", changes["Test Name"].unique())
 
         with col2:
-            field_filter = st.multiselect(
-                "Field Changed",
-                options=changes["Field Changed"].unique()
-            )
+            field_filter = st.multiselect("Field Changed", changes["Field Changed"].unique())
 
         with col3:
-            old_filter = st.multiselect(
-                "Old Value",
-                options=changes["Old Value"].astype(str).unique()
-            )
+            old_filter = st.multiselect("Old Value", changes["Old Value"].astype(str).unique())
 
         filtered = changes.copy()
 
@@ -333,12 +329,8 @@ elif page == "Change Analysis":
         if old_filter:
             filtered = filtered[filtered["Old Value"].isin(old_filter)]
 
-        status_changes = len(
-            filtered[filtered["Field Changed"] == "TESTS__STATUS"]
-        )
-
+        status_changes = len(filtered[filtered["Field Changed"] == "TESTS__STATUS"])
         tests_impacted = filtered["Test Name"].nunique()
-
         fields_changed = filtered["Field Changed"].nunique()
 
         k1, k2, k3 = st.columns(3)
