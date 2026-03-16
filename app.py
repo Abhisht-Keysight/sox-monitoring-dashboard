@@ -198,10 +198,11 @@ if uploaded_file:
 
         changes=compare_versions(prev_df,latest_df)
 
-        changes.to_csv(CHANGE_FILE,index=False)
+        if not changes.empty:
+            changes.to_csv(CHANGE_FILE,index=False)
 
 # ---------------------------------------------------
-# LOAD DATA
+# LOAD DATA SAFELY
 # ---------------------------------------------------
 
 latest_df,_=load_versions()
@@ -210,7 +211,16 @@ changes=None
 
 if os.path.exists(CHANGE_FILE):
 
-    changes=pd.read_csv(CHANGE_FILE)
+    try:
+
+        changes=pd.read_csv(CHANGE_FILE)
+
+        if changes.empty:
+            changes=None
+
+    except pd.errors.EmptyDataError:
+
+        changes=None
 
 # ---------------------------------------------------
 # EXECUTIVE DASHBOARD
@@ -257,7 +267,7 @@ elif page=="Change Analysis":
 
     st.subheader("Changes Since Last Upload")
 
-    if changes is None or changes.empty:
+    if changes is None:
 
         st.info("Upload at least two dashboards to detect changes")
 
@@ -298,8 +308,11 @@ elif page=="Change Analysis":
 
             with open(path,"rb") as f:
 
-                st.download_button("Download Excel",f,
-                                   file_name="highlighted_changes.xlsx")
+                st.download_button(
+                    "Download Excel",
+                    f,
+                    file_name="highlighted_changes.xlsx"
+                )
 
 # ---------------------------------------------------
 # HISTORY
