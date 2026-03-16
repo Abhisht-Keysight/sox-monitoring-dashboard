@@ -5,27 +5,27 @@ from datetime import datetime
 import plotly.express as px
 from streamlit_plotly_events import plotly_events
 
-# -----------------------------------------------------
+# ----------------------------------------------------
 # PAGE CONFIG
-# -----------------------------------------------------
+# ----------------------------------------------------
 
 st.set_page_config(
     page_title="SOX Control Monitoring Platform",
     layout="wide"
 )
 
-# -----------------------------------------------------
+# ----------------------------------------------------
 # STORAGE CONFIG
-# -----------------------------------------------------
+# ----------------------------------------------------
 
 UPLOAD_DIR = "data/uploads"
 LOG_FILE = "data/upload_log.csv"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# -----------------------------------------------------
+# ----------------------------------------------------
 # HEADER
-# -----------------------------------------------------
+# ----------------------------------------------------
 
 st.markdown("""
 <div style="
@@ -40,9 +40,9 @@ margin-bottom:20px;
 </div>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------
-# SIDEBAR NAVIGATION
-# -----------------------------------------------------
+# ----------------------------------------------------
+# SIDEBAR
+# ----------------------------------------------------
 
 st.sidebar.title("Navigation")
 
@@ -61,9 +61,9 @@ uploaded_file = st.sidebar.file_uploader(
     type=["xlsx"]
 )
 
-# -----------------------------------------------------
-# SAVE UPLOADED FILE
-# -----------------------------------------------------
+# ----------------------------------------------------
+# SAVE FILE
+# ----------------------------------------------------
 
 def save_uploaded_file(uploaded_file):
 
@@ -79,9 +79,9 @@ def save_uploaded_file(uploaded_file):
     return filename, path
 
 
-# -----------------------------------------------------
-# UPDATE UPLOAD LOG
-# -----------------------------------------------------
+# ----------------------------------------------------
+# UPDATE LOG
+# ----------------------------------------------------
 
 def update_upload_log(filename, df):
 
@@ -106,14 +106,13 @@ def update_upload_log(filename, df):
     log.to_csv(LOG_FILE, index=False)
 
 
-# -----------------------------------------------------
-# LOAD PREVIOUS VERSION (SAFE)
-# -----------------------------------------------------
+# ----------------------------------------------------
+# LOAD PREVIOUS VERSION
+# ----------------------------------------------------
 
 def load_previous_file():
 
     files = sorted(os.listdir(UPLOAD_DIR))
-
     files = [f for f in files if f.endswith(".xlsx")]
 
     if len(files) < 2:
@@ -127,18 +126,42 @@ def load_previous_file():
         return None
 
 
-# -----------------------------------------------------
+# ----------------------------------------------------
+# VALIDATE DATA
+# ----------------------------------------------------
+
+def validate_dataset(df):
+
+    required = ["Control ID", "Status"]
+
+    missing = [c for c in required if c not in df.columns]
+
+    if missing:
+
+        st.error(f"Uploaded file missing required columns: {missing}")
+        st.stop()
+
+
+# ----------------------------------------------------
 # COMPARE VERSIONS
-# -----------------------------------------------------
+# ----------------------------------------------------
 
 def compare_versions(old_df, new_df):
+
+    required_cols = ["Control ID", "Status"]
+
+    for col in required_cols:
+        if col not in old_df.columns or col not in new_df.columns:
+            return pd.DataFrame()
 
     old_df = old_df.set_index("Control ID")
     new_df = new_df.set_index("Control ID")
 
     changes = []
 
-    for cid in old_df.index.intersection(new_df.index):
+    common_controls = old_df.index.intersection(new_df.index)
+
+    for cid in common_controls:
 
         old_status = old_df.loc[cid]["Status"]
         new_status = new_df.loc[cid]["Status"]
@@ -154,9 +177,9 @@ def compare_versions(old_df, new_df):
     return pd.DataFrame(changes)
 
 
-# -----------------------------------------------------
-# HANDLE FILE UPLOAD
-# -----------------------------------------------------
+# ----------------------------------------------------
+# HANDLE UPLOAD
+# ----------------------------------------------------
 
 df = None
 changes = pd.DataFrame()
@@ -167,6 +190,8 @@ if uploaded_file:
 
     df = pd.read_excel(path)
 
+    validate_dataset(df)
+
     update_upload_log(filename, df)
 
     previous_df = load_previous_file()
@@ -175,9 +200,9 @@ if uploaded_file:
 
         changes = compare_versions(previous_df, df)
 
-# -----------------------------------------------------
+# ----------------------------------------------------
 # EXECUTIVE DASHBOARD
-# -----------------------------------------------------
+# ----------------------------------------------------
 
 if page == "Executive Dashboard":
 
@@ -186,7 +211,6 @@ if page == "Executive Dashboard":
         total_controls = len(df)
 
         open_controls = len(df[df["Status"] == "Open"])
-
         closed_controls = len(df[df["Status"] == "Closed"])
 
         col1,col2,col3 = st.columns(3)
@@ -195,7 +219,7 @@ if page == "Executive Dashboard":
         col2.metric("Open Controls", open_controls)
         col3.metric("Closed Controls", closed_controls)
 
-        st.markdown("---")
+        st.divider()
 
         colA,colB = st.columns(2)
 
@@ -235,12 +259,12 @@ if page == "Executive Dashboard":
 
     else:
 
-        st.info("Upload a SOX dashboard to begin analysis.")
+        st.info("Upload a valid SOX dashboard file to begin analysis.")
 
 
-# -----------------------------------------------------
+# ----------------------------------------------------
 # CHANGE ANALYSIS
-# -----------------------------------------------------
+# ----------------------------------------------------
 
 elif page == "Change Analysis":
 
@@ -271,12 +295,12 @@ elif page == "Change Analysis":
 
     else:
 
-        st.info("No changes detected or only one upload exists.")
+        st.info("Upload at least two valid dashboards to see changes.")
 
 
-# -----------------------------------------------------
+# ----------------------------------------------------
 # UPLOAD HISTORY
-# -----------------------------------------------------
+# ----------------------------------------------------
 
 elif page == "Upload History":
 
@@ -290,24 +314,26 @@ elif page == "Upload History":
 
         for _, row in log.iterrows():
 
-            path = os.path.join(UPLOAD_DIR, row["File Name"])
+            file_path = os.path.join(UPLOAD_DIR, row["File Name"])
 
-            with open(path, "rb") as f:
+            if os.path.exists(file_path):
 
-                st.download_button(
-                    label=f"Download {row['File Name']}",
-                    data=f,
-                    file_name=row["File Name"]
-                )
+                with open(file_path, "rb") as f:
+
+                    st.download_button(
+                        label=f"Download {row['File Name']}",
+                        data=f,
+                        file_name=row["File Name"]
+                    )
 
     else:
 
         st.info("No uploads recorded yet.")
 
 
-# -----------------------------------------------------
+# ----------------------------------------------------
 # RAW DATA
-# -----------------------------------------------------
+# ----------------------------------------------------
 
 elif page == "Raw Data":
 
@@ -317,4 +343,4 @@ elif page == "Raw Data":
 
     else:
 
-        st.info("Upload dashboard data.")
+        st.info("Upload dashboard data to view raw dataset.")
