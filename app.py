@@ -5,27 +5,23 @@ from datetime import datetime
 import plotly.express as px
 from streamlit_plotly_events import plotly_events
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # PAGE CONFIG
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 st.set_page_config(
     page_title="SOX Control Monitoring Platform",
     layout="wide"
 )
 
-# ----------------------------------------------------
-# STORAGE CONFIG
-# ----------------------------------------------------
-
 UPLOAD_DIR = "data/uploads"
 LOG_FILE = "data/upload_log.csv"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # HEADER
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 st.markdown("""
 <div style="
@@ -40,9 +36,9 @@ margin-bottom:20px;
 </div>
 """, unsafe_allow_html=True)
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # SIDEBAR
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 st.sidebar.title("Navigation")
 
@@ -61,9 +57,9 @@ uploaded_file = st.sidebar.file_uploader(
     type=["xlsx"]
 )
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # SAVE FILE
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 def save_uploaded_file(uploaded_file):
 
@@ -79,9 +75,9 @@ def save_uploaded_file(uploaded_file):
     return filename, path
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # UPDATE LOG
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 def update_upload_log(filename, df):
 
@@ -106,9 +102,9 @@ def update_upload_log(filename, df):
     log.to_csv(LOG_FILE, index=False)
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # LOAD PREVIOUS FILE
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 def load_previous_file():
 
@@ -126,9 +122,9 @@ def load_previous_file():
         return None
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # DETECT CONTROL COLUMN
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 def get_control_column(df):
 
@@ -141,9 +137,9 @@ def get_control_column(df):
     return None
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # VALIDATE DATASET
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 def validate_dataset(df):
 
@@ -151,20 +147,20 @@ def validate_dataset(df):
 
     if control_col is None:
 
-        st.error("Dataset must contain 'Control Number' or 'Control ID' column.")
+        st.error("Dataset must contain 'Control Number' or 'Control ID'")
         st.stop()
 
     if "Status" not in df.columns:
 
-        st.error("Dataset must contain a 'Status' column.")
+        st.error("Dataset must contain a 'Status' column")
         st.stop()
 
     return control_col
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # COMPARE VERSIONS
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 def compare_versions(old_df, new_df):
 
@@ -185,8 +181,14 @@ def compare_versions(old_df, new_df):
 
     for cid in common_controls:
 
-        old_status = old_df.loc[cid]["Status"]
-        new_status = new_df.loc[cid]["Status"]
+        old_status = old_df.loc[cid, "Status"]
+        new_status = new_df.loc[cid, "Status"]
+
+        if isinstance(old_status, pd.Series):
+            old_status = old_status.iloc[0]
+
+        if isinstance(new_status, pd.Series):
+            new_status = new_status.iloc[0]
 
         if old_status != new_status:
 
@@ -199,9 +201,9 @@ def compare_versions(old_df, new_df):
     return pd.DataFrame(changes)
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # HANDLE UPLOAD
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 df = None
 changes = pd.DataFrame()
@@ -223,9 +225,9 @@ if uploaded_file:
         changes = compare_versions(previous_df, df)
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # EXECUTIVE DASHBOARD
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 if page == "Executive Dashboard":
 
@@ -233,8 +235,10 @@ if page == "Executive Dashboard":
 
         total_controls = len(df)
 
-        open_controls = len(df[df["Status"] == "Open"])
-        closed_controls = len(df[df["Status"] == "Closed"])
+        status_counts = df["Status"].value_counts()
+
+        open_controls = status_counts.get("Open",0)
+        closed_controls = status_counts.get("Closed",0) + status_counts.get("Complete",0)
 
         col1,col2,col3 = st.columns(3)
 
@@ -252,7 +256,14 @@ if page == "Executive Dashboard":
                 df,
                 names="Status",
                 hole=0.45,
-                title="Control Status Distribution"
+                title="Control Status Distribution",
+                color="Status",
+                color_discrete_map={
+                    "Open": "#EF4444",
+                    "Closed": "#22C55E",
+                    "Complete": "#22C55E",
+                    "Review Complete": "#3B82F6"
+                }
             )
 
             selected = plotly_events(fig)
@@ -275,19 +286,20 @@ if page == "Executive Dashboard":
                 status_counts,
                 x="Status",
                 y="count",
-                title="Status Breakdown"
+                title="Status Breakdown",
+                color="Status"
             )
 
             st.plotly_chart(fig2, use_container_width=True)
 
     else:
 
-        st.info("Upload a valid SOX dashboard file to begin analysis.")
+        st.info("Upload a valid SOX dashboard to begin analysis.")
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # CHANGE ANALYSIS
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 elif page == "Change Analysis":
 
@@ -318,12 +330,12 @@ elif page == "Change Analysis":
 
     else:
 
-        st.info("Upload at least two dashboards to see changes.")
+        st.info("Upload at least two dashboards to detect changes.")
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # UPLOAD HISTORY
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 elif page == "Upload History":
 
@@ -354,9 +366,9 @@ elif page == "Upload History":
         st.info("No uploads recorded yet.")
 
 
-# ----------------------------------------------------
+# ---------------------------------------------------
 # RAW DATA
-# ----------------------------------------------------
+# ---------------------------------------------------
 
 elif page == "Raw Data":
 
@@ -366,4 +378,4 @@ elif page == "Raw Data":
 
     else:
 
-        st.info("Upload dashboard data to view raw dataset.")
+        st.info("Upload dashboard data to view dataset.")
