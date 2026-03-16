@@ -6,13 +6,10 @@ import plotly.express as px
 from streamlit_plotly_events import plotly_events
 
 # ---------------------------------------------------
-# PAGE CONFIG
+# CONFIG
 # ---------------------------------------------------
 
-st.set_page_config(
-    page_title="SOX Control Monitoring Platform",
-    layout="wide"
-)
+st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 
 UPLOAD_DIR = "data/uploads"
 LOG_FILE = "data/upload_log.csv"
@@ -29,8 +26,7 @@ background:linear-gradient(90deg,#0f172a,#1e3a8a);
 padding:30px;
 border-radius:12px;
 color:white;
-margin-bottom:20px;
-">
+margin-bottom:20px;">
 <h1>SOX Control Monitoring Platform</h1>
 <p>Internal Audit Analytics Dashboard</p>
 </div>
@@ -58,13 +54,12 @@ uploaded_file = st.sidebar.file_uploader(
 )
 
 # ---------------------------------------------------
-# SAVE FILE
+# FILE STORAGE
 # ---------------------------------------------------
 
 def save_uploaded_file(uploaded_file):
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
     filename = f"{timestamp}_sox_dashboard.xlsx"
 
     path = os.path.join(UPLOAD_DIR, filename)
@@ -76,7 +71,7 @@ def save_uploaded_file(uploaded_file):
 
 
 # ---------------------------------------------------
-# UPDATE LOG
+# UPLOAD LOG
 # ---------------------------------------------------
 
 def update_upload_log(filename, df):
@@ -92,7 +87,6 @@ def update_upload_log(filename, df):
     if os.path.exists(LOG_FILE):
 
         log = pd.read_csv(LOG_FILE)
-
         log = pd.concat([log, new_row], ignore_index=True)
 
     else:
@@ -103,27 +97,31 @@ def update_upload_log(filename, df):
 
 
 # ---------------------------------------------------
-# LOAD PREVIOUS FILE
+# LOAD LATEST FILES
 # ---------------------------------------------------
 
-def load_previous_file():
+def load_latest_files():
 
     files = sorted(os.listdir(UPLOAD_DIR))
     files = [f for f in files if f.endswith(".xlsx")]
 
-    if len(files) < 2:
-        return None
+    if len(files) == 0:
+        return None, None
 
-    previous_file = os.path.join(UPLOAD_DIR, files[-2])
+    latest_file = os.path.join(UPLOAD_DIR, files[-1])
+    latest_df = pd.read_excel(latest_file)
 
-    try:
-        return pd.read_excel(previous_file)
-    except:
-        return None
+    previous_df = None
+
+    if len(files) > 1:
+        previous_file = os.path.join(UPLOAD_DIR, files[-2])
+        previous_df = pd.read_excel(previous_file)
+
+    return latest_df, previous_df
 
 
 # ---------------------------------------------------
-# DETECT CONTROL COLUMN
+# CONTROL COLUMN DETECTION
 # ---------------------------------------------------
 
 def get_control_column(df):
@@ -138,7 +136,7 @@ def get_control_column(df):
 
 
 # ---------------------------------------------------
-# VALIDATE DATASET
+# DATASET VALIDATION
 # ---------------------------------------------------
 
 def validate_dataset(df):
@@ -146,12 +144,10 @@ def validate_dataset(df):
     control_col = get_control_column(df)
 
     if control_col is None:
-
         st.error("Dataset must contain 'Control Number' or 'Control ID'")
         st.stop()
 
     if "Status" not in df.columns:
-
         st.error("Dataset must contain a 'Status' column")
         st.stop()
 
@@ -159,7 +155,7 @@ def validate_dataset(df):
 
 
 # ---------------------------------------------------
-# COMPARE VERSIONS
+# VERSION COMPARISON
 # ---------------------------------------------------
 
 def compare_versions(old_df, new_df):
@@ -171,6 +167,9 @@ def compare_versions(old_df, new_df):
 
     if control_col not in old_df.columns:
         return pd.DataFrame()
+
+    old_df[control_col] = old_df[control_col].astype(str).str.strip()
+    new_df[control_col] = new_df[control_col].astype(str).str.strip()
 
     old_df = old_df.set_index(control_col)
     new_df = new_df.set_index(control_col)
@@ -190,6 +189,9 @@ def compare_versions(old_df, new_df):
         if isinstance(new_status, pd.Series):
             new_status = new_status.iloc[0]
 
+        old_status = str(old_status).strip()
+        new_status = str(new_status).strip()
+
         if old_status != new_status:
 
             changes.append({
@@ -202,27 +204,34 @@ def compare_versions(old_df, new_df):
 
 
 # ---------------------------------------------------
-# HANDLE UPLOAD
+# LOAD DATA
 # ---------------------------------------------------
 
 df = None
 changes = pd.DataFrame()
 
+latest_df, previous_df = load_latest_files()
+
+if latest_df is not None:
+    df = latest_df
+
+# Handle upload
 if uploaded_file:
 
     filename, path = save_uploaded_file(uploaded_file)
 
     df = pd.read_excel(path)
 
-    control_column = validate_dataset(df)
+    validate_dataset(df)
 
     update_upload_log(filename, df)
 
-    previous_df = load_previous_file()
+    latest_df, previous_df = load_latest_files()
 
-    if previous_df is not None:
+# Run comparison
+if df is not None and previous_df is not None:
 
-        changes = compare_versions(previous_df, df)
+    changes = compare_versions(previous_df, df)
 
 
 # ---------------------------------------------------
@@ -237,10 +246,15 @@ if page == "Executive Dashboard":
 
         status_counts = df["Status"].value_counts()
 
-        open_controls = status_counts.get("Open",0)
-        closed_controls = status_counts.get("Closed",0) + status_counts.get("Complete",0)
+        open_controls = status_counts.get("Open", 0)
 
-        col1,col2,col3 = st.columns(3)
+        closed_controls = (
+            status_counts.get("Closed", 0)
+            + status_counts.get("Complete", 0)
+            + status_counts.get("Review Complete", 0)
+        )
+
+        col1, col2, col3 = st.columns(3)
 
         col1.metric("Total Controls", total_controls)
         col2.metric("Open Controls", open_controls)
@@ -248,7 +262,7 @@ if page == "Executive Dashboard":
 
         st.divider()
 
-        colA,colB = st.columns(2)
+        colA, colB = st.columns(2)
 
         with colA:
 
@@ -286,15 +300,15 @@ if page == "Executive Dashboard":
                 status_counts,
                 x="Status",
                 y="count",
-                title="Status Breakdown",
-                color="Status"
+                color="Status",
+                title="Status Breakdown"
             )
 
             st.plotly_chart(fig2, use_container_width=True)
 
     else:
 
-        st.info("Upload a valid SOX dashboard to begin analysis.")
+        st.info("Upload a dashboard to begin analysis.")
 
 
 # ---------------------------------------------------
@@ -307,7 +321,7 @@ elif page == "Change Analysis":
 
     if not changes.empty:
 
-        col1,col2 = st.columns(2)
+        col1, col2 = st.columns(2)
 
         col1.metric("Total Changes", len(changes))
         col2.metric("Affected Controls", changes["Control"].nunique())
@@ -315,7 +329,7 @@ elif page == "Change Analysis":
         st.dataframe(changes)
 
         movement_counts = changes.groupby(
-            ["Old Status","New Status"]
+            ["Old Status", "New Status"]
         ).size().reset_index(name="Count")
 
         fig = px.bar(
@@ -330,7 +344,7 @@ elif page == "Change Analysis":
 
     else:
 
-        st.info("Upload at least two dashboards to detect changes.")
+        st.info("Upload at least two dashboards with status changes.")
 
 
 # ---------------------------------------------------
