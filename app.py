@@ -17,6 +17,16 @@ LOG_FILE = "data/upload_log.csv"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # -----------------------------------------------------
+# SESSION STATE INIT
+# -----------------------------------------------------
+
+if "df" not in st.session_state:
+    st.session_state.df = None
+
+if "changes" not in st.session_state:
+    st.session_state.changes = pd.DataFrame()
+
+# -----------------------------------------------------
 # HEADER
 # -----------------------------------------------------
 
@@ -39,13 +49,10 @@ page = st.sidebar.radio(
     ["Executive Dashboard","Change Analysis","Upload History","Raw Data"]
 )
 
-uploaded_file = st.sidebar.file_uploader(
-    "Upload SOX Dashboard",
-    type=["xlsx"]
-)
+uploaded_file = st.sidebar.file_uploader("Upload SOX Dashboard", type=["xlsx"])
 
 # -----------------------------------------------------
-# SAVE FILE
+# FUNCTIONS
 # -----------------------------------------------------
 
 def save_uploaded_file(uploaded_file):
@@ -61,10 +68,6 @@ def save_uploaded_file(uploaded_file):
 
     return filename,path
 
-
-# -----------------------------------------------------
-# UPDATE UPLOAD LOG
-# -----------------------------------------------------
 
 def update_upload_log(filename,df):
 
@@ -88,10 +91,6 @@ def update_upload_log(filename,df):
     log.to_csv(LOG_FILE,index=False)
 
 
-# -----------------------------------------------------
-# LOAD LATEST FILES
-# -----------------------------------------------------
-
 def load_latest_files():
 
     files = sorted(os.listdir(UPLOAD_DIR))
@@ -100,68 +99,49 @@ def load_latest_files():
     if len(files)==0:
         return None,None
 
-    latest_file = os.path.join(UPLOAD_DIR,files[-1])
-    latest_df = pd.read_excel(latest_file)
+    latest = os.path.join(UPLOAD_DIR,files[-1])
+    latest_df = pd.read_excel(latest)
 
     previous_df=None
 
     if len(files)>1:
 
-        previous_file = os.path.join(UPLOAD_DIR,files[-2])
-        previous_df = pd.read_excel(previous_file)
+        previous = os.path.join(UPLOAD_DIR,files[-2])
+        previous_df = pd.read_excel(previous)
 
     return latest_df,previous_df
 
 
-# -----------------------------------------------------
-# CONTROL COLUMN DETECTION
-# -----------------------------------------------------
-
 def get_control_column(df):
 
-    possible=["Control Number","Control ID"]
-
-    for col in possible:
+    for col in ["Control Number","Control ID"]:
         if col in df.columns:
             return col
 
     return None
 
 
-# -----------------------------------------------------
-# VALIDATION
-# -----------------------------------------------------
-
 def validate_dataset(df):
 
     control_col = get_control_column(df)
 
     if control_col is None:
-
-        st.error("File must contain Control Number or Control ID column")
+        st.error("Dataset must contain Control Number or Control ID column")
         st.stop()
 
     if "Status" not in df.columns:
-
-        st.error("File must contain Status column")
+        st.error("Dataset must contain Status column")
         st.stop()
 
     return control_col
 
 
-# -----------------------------------------------------
-# VERSION COMPARISON
-# -----------------------------------------------------
-
 def compare_versions(old_df,new_df):
 
     control_col = get_control_column(new_df)
 
-    if control_col is None:
-        return pd.DataFrame()
-
-    old_df[control_col]=old_df[control_col].astype(str).str.strip()
-    new_df[control_col]=new_df[control_col].astype(str).str.strip()
+    old_df[control_col] = old_df[control_col].astype(str).str.strip()
+    new_df[control_col] = new_df[control_col].astype(str).str.strip()
 
     old_df = old_df.set_index(control_col)
     new_df = new_df.set_index(control_col)
@@ -176,49 +156,71 @@ def compare_versions(old_df,new_df):
         new_status = new_df.loc[cid,"Status"]
 
         if isinstance(old_status,pd.Series):
-            old_status=old_status.iloc[0]
+            old_status = old_status.iloc[0]
 
         if isinstance(new_status,pd.Series):
-            new_status=new_status.iloc[0]
+            new_status = new_status.iloc[0]
 
         if str(old_status).strip()!=str(new_status).strip():
 
             changes.append({
                 "Control":cid,
-                "Old Status":old_status,
-                "New Status":new_status
+                "Change Type":"Status Change",
+                "Old":old_status,
+                "New":new_status
             })
+
+    # detect new controls
+    new_controls = new_df.index.difference(old_df.index)
+
+    for cid in new_controls:
+
+        changes.append({
+            "Control":cid,
+            "Change Type":"New Control",
+            "Old":"N/A",
+            "New":new_df.loc[cid,"Status"]
+        })
+
+    # detect removed controls
+    removed_controls = old_df.index.difference(new_df.index)
+
+    for cid in removed_controls:
+
+        changes.append({
+            "Control":cid,
+            "Change Type":"Control Removed",
+            "Old":old_df.loc[cid,"Status"],
+            "New":"N/A"
+        })
 
     return pd.DataFrame(changes)
 
-
 # -----------------------------------------------------
-# DATA LOADING
+# HANDLE FILE UPLOAD
 # -----------------------------------------------------
 
-df=None
-changes=pd.DataFrame()
-
-# Handle upload
 if uploaded_file:
 
     filename,path = save_uploaded_file(uploaded_file)
 
-    df=pd.read_excel(path)
+    df = pd.read_excel(path)
 
     validate_dataset(df)
 
     update_upload_log(filename,df)
 
-# Always load latest stored files
+# -----------------------------------------------------
+# LOAD LATEST DATA
+# -----------------------------------------------------
+
 latest_df,previous_df = load_latest_files()
 
 if latest_df is not None:
-    df=latest_df
+    st.session_state.df = latest_df
 
 if latest_df is not None and previous_df is not None:
-    changes = compare_versions(previous_df,latest_df)
-
+    st.session_state.changes = compare_versions(previous_df,latest_df)
 
 # -----------------------------------------------------
 # EXECUTIVE DASHBOARD
@@ -226,21 +228,23 @@ if latest_df is not None and previous_df is not None:
 
 if page=="Executive Dashboard":
 
+    df = st.session_state.df
+
     if df is not None:
 
-        total_controls=len(df)
+        total_controls = len(df)
 
-        status_counts=df["Status"].value_counts()
+        status_counts = df["Status"].value_counts()
 
-        open_controls=status_counts.get("Open",0)
+        open_controls = status_counts.get("Open",0)
 
-        closed_controls=(
+        closed_controls = (
             status_counts.get("Closed",0)+
             status_counts.get("Complete",0)+
             status_counts.get("Review Complete",0)
         )
 
-        col1,col2,col3=st.columns(3)
+        col1,col2,col3 = st.columns(3)
 
         col1.metric("Total Controls",total_controls)
         col2.metric("Open Controls",open_controls)
@@ -248,11 +252,11 @@ if page=="Executive Dashboard":
 
         st.divider()
 
-        colA,colB=st.columns(2)
+        colA,colB = st.columns(2)
 
         with colA:
 
-            fig=px.pie(
+            fig = px.pie(
                 df,
                 names="Status",
                 hole=0.45,
@@ -280,9 +284,9 @@ if page=="Executive Dashboard":
 
         with colB:
 
-            status_counts=df["Status"].value_counts().reset_index()
+            status_counts = df["Status"].value_counts().reset_index()
 
-            fig2=px.bar(
+            fig2 = px.bar(
                 status_counts,
                 x="Status",
                 y="count",
@@ -294,8 +298,7 @@ if page=="Executive Dashboard":
 
     else:
 
-        st.info("Upload a dashboard to begin analysis.")
-
+        st.info("Upload dashboard to begin analysis.")
 
 # -----------------------------------------------------
 # CHANGE ANALYSIS
@@ -303,35 +306,33 @@ if page=="Executive Dashboard":
 
 elif page=="Change Analysis":
 
+    changes = st.session_state.changes
+
     st.subheader("Changes Since Last Upload")
 
     if not changes.empty:
 
-        col1,col2=st.columns(2)
+        col1,col2 = st.columns(2)
 
         col1.metric("Total Changes",len(changes))
         col2.metric("Affected Controls",changes["Control"].nunique())
 
         st.dataframe(changes)
 
-        movement_counts = changes.groupby(
-            ["Old Status","New Status"]
-        ).size().reset_index(name="Count")
+        change_counts = changes["Change Type"].value_counts().reset_index()
 
         fig = px.bar(
-            movement_counts,
-            x="Old Status",
-            y="Count",
-            color="New Status",
-            title="Status Movement"
+            change_counts,
+            x="index",
+            y="Change Type",
+            title="Detected Changes"
         )
 
         st.plotly_chart(fig,use_container_width=True)
 
     else:
 
-        st.info("Upload at least two dashboards with status changes.")
-
+        st.info("Upload at least two dashboards to detect changes.")
 
 # -----------------------------------------------------
 # UPLOAD HISTORY
@@ -343,13 +344,13 @@ elif page=="Upload History":
 
     if os.path.exists(LOG_FILE):
 
-        log=pd.read_csv(LOG_FILE)
+        log = pd.read_csv(LOG_FILE)
 
         st.dataframe(log)
 
         for _,row in log.iterrows():
 
-            path=os.path.join(UPLOAD_DIR,row["File Name"])
+            path = os.path.join(UPLOAD_DIR,row["File Name"])
 
             if os.path.exists(path):
 
@@ -363,8 +364,7 @@ elif page=="Upload History":
 
     else:
 
-        st.info("No uploads recorded yet.")
-
+        st.info("No uploads recorded.")
 
 # -----------------------------------------------------
 # RAW DATA
@@ -372,7 +372,12 @@ elif page=="Upload History":
 
 elif page=="Raw Data":
 
+    df = st.session_state.df
+
     if df is not None:
+
         st.dataframe(df)
+
     else:
-        st.info("Upload dashboard data.")
+
+        st.info("Upload dashboard to view raw data.")
