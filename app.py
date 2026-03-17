@@ -16,12 +16,6 @@ OUTPUT_DIR = "data/output"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ---------------- ONEDRIVE ---------------- #
-
-LATEST_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQD8IPMXGAeaT4TJjsycGI5LASf2Zb_Cemy1F-TxdLiZyQ4?download=1"
-
-CHANGE_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQDN_RRiOlGjS4Jsf81KIg8fAdmYzX0Ugw2iKb6BmgfiJr0?download=1"
-
 # ---------------- HEADER ---------------- #
 
 st.markdown("""
@@ -75,15 +69,15 @@ def save_file(uploaded_file):
 
     return filename,path
 
-# ---------------- LOAD DATA (FIXED) ---------------- #
+# ---------------- LOAD LATEST ---------------- #
 
 def load_latest_data():
 
-    # 1️⃣ SESSION (instant after upload)
-    if "uploaded_df" in st.session_state:
-        return st.session_state.uploaded_df
+    # session priority
+    if "latest_df" in st.session_state:
+        return st.session_state.latest_df
 
-    # 2️⃣ LOCAL STORAGE (persistent across sessions)
+    # fallback local
     try:
         files = sorted(os.listdir(UPLOAD_DIR))
         files = [f for f in files if f.endswith(".xlsx")]
@@ -95,23 +89,7 @@ def load_latest_data():
     except:
         pass
 
-    # 3️⃣ ONEDRIVE BACKUP
-    try:
-        df = pd.read_csv(LATEST_URL)
-        return df
-    except:
-        return None
-
-# ---------------- LOAD CHANGES ---------------- #
-
-def load_changes():
-    try:
-        df = pd.read_csv(CHANGE_URL)
-        if df.empty:
-            return None
-        return df
-    except:
-        return None
+    return None
 
 # ---------------- COMPARE ---------------- #
 
@@ -147,6 +125,24 @@ def compare_versions(old_df,new_df):
 
     return pd.DataFrame(changes)
 
+# ---------------- RUN ANALYSIS ---------------- #
+
+def run_change_analysis():
+
+    files = sorted(os.listdir(UPLOAD_DIR))
+    files = [f for f in files if f.endswith(".xlsx")]
+
+    if len(files) < 2:
+        return None
+
+    latest = os.path.join(UPLOAD_DIR, files[-1])
+    previous = os.path.join(UPLOAD_DIR, files[-2])
+
+    new_df = pd.read_excel(latest, sheet_name="IA data")
+    old_df = pd.read_excel(previous, sheet_name="IA data")
+
+    return compare_versions(old_df, new_df)
+
 # ---------------- HIGHLIGHT ---------------- #
 
 def generate_highlight_file(changes):
@@ -181,7 +177,7 @@ def generate_highlight_file(changes):
 
     return output
 
-# ---------------- HANDLE UPLOAD (FIXED) ---------------- #
+# ---------------- HANDLE UPLOAD ---------------- #
 
 if uploaded_file:
 
@@ -190,15 +186,21 @@ if uploaded_file:
     df = pd.read_excel(path, sheet_name="IA data")
     validate_dataset(df)
 
-    # 🔥 CRITICAL FIX
-    st.session_state.uploaded_df = df
+    # store latest
+    st.session_state.latest_df = df
 
-    st.success("File uploaded successfully")
+    # run analysis
+    changes = run_change_analysis()
+
+    if changes is not None and not changes.empty:
+        st.session_state.changes = changes
+
+    st.success("File uploaded successfully & analysis updated")
 
 # ---------------- LOAD ---------------- #
 
 latest_df = load_latest_data()
-changes = load_changes()
+changes = st.session_state.get("changes", None)
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
@@ -240,9 +242,9 @@ elif page=="Change Analysis":
 
     st.subheader("Changes Since Last Upload")
 
-    if changes is None:
+    if changes is None or changes.empty:
 
-        st.info("No change analysis available")
+        st.info("Upload at least two dashboards to detect changes")
 
     else:
 
