@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-import json
 from datetime import datetime
 import plotly.express as px
 from openpyxl import load_workbook
@@ -13,12 +12,11 @@ st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 
 UPLOAD_DIR = "data/uploads"
 OUTPUT_DIR = "data/output"
-LOG_FILE = "data/upload_log.csv"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ---------------- ONEDRIVE LINKS ---------------- #
+# ---------------- ONEDRIVE ---------------- #
 
 LATEST_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQD8IPMXGAeaT4TJjsycGI5LASf2Zb_Cemy1F-TxdLiZyQ4?download=1"
 
@@ -77,14 +75,34 @@ def save_file(uploaded_file):
 
     return filename,path
 
-# ---------------- LOAD FROM ONEDRIVE ---------------- #
+# ---------------- LOAD DATA (FIXED) ---------------- #
 
 def load_latest_data():
+
+    # 1️⃣ SESSION (instant after upload)
+    if "uploaded_df" in st.session_state:
+        return st.session_state.uploaded_df
+
+    # 2️⃣ LOCAL STORAGE (persistent across sessions)
+    try:
+        files = sorted(os.listdir(UPLOAD_DIR))
+        files = [f for f in files if f.endswith(".xlsx")]
+
+        if files:
+            latest_file = os.path.join(UPLOAD_DIR, files[-1])
+            df = pd.read_excel(latest_file, sheet_name="IA data")
+            return df
+    except:
+        pass
+
+    # 3️⃣ ONEDRIVE BACKUP
     try:
         df = pd.read_csv(LATEST_URL)
         return df
     except:
         return None
+
+# ---------------- LOAD CHANGES ---------------- #
 
 def load_changes():
     try:
@@ -129,7 +147,7 @@ def compare_versions(old_df,new_df):
 
     return pd.DataFrame(changes)
 
-# ---------------- HIGHLIGHT FILE ---------------- #
+# ---------------- HIGHLIGHT ---------------- #
 
 def generate_highlight_file(changes):
 
@@ -163,18 +181,21 @@ def generate_highlight_file(changes):
 
     return output
 
-# ---------------- HANDLE UPLOAD ---------------- #
+# ---------------- HANDLE UPLOAD (FIXED) ---------------- #
 
 if uploaded_file:
 
     filename,path=save_file(uploaded_file)
 
-    df=pd.read_excel(path,sheet_name="IA data")
+    df = pd.read_excel(path, sheet_name="IA data")
     validate_dataset(df)
 
-    st.success("File uploaded successfully (Note: OneDrive not auto-updated yet)")
+    # 🔥 CRITICAL FIX
+    st.session_state.uploaded_df = df
 
-# ---------------- LOAD DATA ---------------- #
+    st.success("File uploaded successfully")
+
+# ---------------- LOAD ---------------- #
 
 latest_df = load_latest_data()
 changes = load_changes()
@@ -211,7 +232,7 @@ if page=="Executive Dashboard":
             st.plotly_chart(fig2,use_container_width=True)
 
     else:
-        st.warning("No data found in OneDrive")
+        st.warning("No data available")
 
 # ---------------- CHANGE ANALYSIS ---------------- #
 
@@ -221,7 +242,7 @@ elif page=="Change Analysis":
 
     if changes is None:
 
-        st.info("No change analysis available in OneDrive")
+        st.info("No change analysis available")
 
     else:
 
