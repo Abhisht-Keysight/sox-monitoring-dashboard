@@ -1,15 +1,18 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
+import os
 
-st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
+st.set_page_config(layout="wide")
 
-# ---------------- ONEDRIVE LINKS ---------------- #
+# ---------------- FILE PATHS ---------------- #
 
-LATEST_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQD8IPMXGAeaT4TJjsycGI5LASf2Zb_Cemy1F-TxdLiZyQ4?download=1"
-CHANGE_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQDN_RRiOlGjS4Jsf81KIg8fAdmYzX0Ugw2iKb6BmgfiJr0?download=1"
+DATA_FILE = "latest_data.csv"
+CHANGE_FILE = "change_analysis.csv"
+LOG_FILE = "version_log.csv"
 
-# ---------------- HEADER ---------------- #
+# ---------------- UI HEADER ---------------- #
 
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f172a,#1e3a8a);
@@ -25,33 +28,38 @@ st.sidebar.title("Navigation")
 
 page = st.sidebar.radio(
     "Select Page",
-    ["Executive Dashboard","Change Analysis","Raw Data"]
+    ["Executive Dashboard","Change Analysis","Upload History","Raw Data"]
 )
 
 uploaded_file = st.sidebar.file_uploader("Upload SOX Dashboard", type=["xlsx"])
 
+# ---------------- LOAD FUNCTIONS ---------------- #
+
+def load_csv_safe(path):
+    try:
+        df = pd.read_csv(path)
+        if df.empty:
+            return None
+        return df
+    except:
+        return None
+
+latest_df = load_csv_safe(DATA_FILE)
+changes_df = load_csv_safe(CHANGE_FILE)
+log_df = load_csv_safe(LOG_FILE)
+
 # ---------------- VALIDATION ---------------- #
 
-def validate_dataset(df):
-
-    required = [
-        "PROCESS_UID","CYCLE","Test Name",
-        "TESTS__TEST_SECTION","TESTS__STATUS",
-        "TESTS__EFFECTIVENESS","TESTS__TESTER_USER",
-        "TESTS__REVIEWER_USER","TESTS__SECONDARY_REVIEWER_USER",
-        "TESTS__START_DATE","TESTS__END_DATE",
-        "TESTS__DUE_DATE","PWC Reliance","Audit Team"
-    ]
-
-    missing=[c for c in required if c not in df.columns]
-
+def validate(df):
+    required = ["Test Name","TESTS__STATUS"]
+    missing = [c for c in required if c not in df.columns]
     if missing:
         st.error(f"Missing columns: {missing}")
         st.stop()
 
 # ---------------- COMPARE ---------------- #
 
-def compare_versions(old_df,new_df):
+def compare(old_df,new_df):
 
     key="Test Name"
 
@@ -65,7 +73,6 @@ def compare_versions(old_df,new_df):
 
     for test in old_df.index.intersection(new_df.index):
         for col in new_df.columns:
-
             old=str(old_df.loc[test,col])
             new=str(new_df.loc[test,col])
 
@@ -79,69 +86,51 @@ def compare_versions(old_df,new_df):
 
     return pd.DataFrame(changes)
 
-# ---------------- LOAD FROM ONEDRIVE ---------------- #
-
-@st.cache_data
-def load_latest():
-    try:
-        return pd.read_csv(LATEST_URL)
-    except:
-        return None
-
-@st.cache_data
-def load_changes():
-    try:
-        df = pd.read_csv(CHANGE_URL)
-        if df.empty:
-            return None
-        return df
-    except:
-        return None
-
-latest_df = load_latest()
-changes_df = load_changes()
-
-# ---------------- HANDLE UPLOAD ---------------- #
+# ---------------- UPLOAD LOGIC ---------------- #
 
 if uploaded_file:
 
-    new_df = pd.read_excel(uploaded_file, sheet_name="IA data")
-    validate_dataset(new_df)
+    df = pd.read_excel(uploaded_file, sheet_name="IA data")
+    validate(df)
 
-    # First upload → set base
-    if "base_df" not in st.session_state:
-        st.session_state.base_df = new_df
-        st.session_state.latest_df = new_df
-        st.info("Base file uploaded. Upload another file to detect changes.")
-
+    if latest_df is None:
+        df.to_csv(DATA_FILE,index=False)
+        st.success("Base file uploaded")
     else:
-        # Second upload → run comparison
-        old_df = st.session_state.base_df
-        changes_df = compare_versions(old_df, new_df)
+        changes = compare(latest_df,df)
 
-        st.session_state.latest_df = new_df
-        st.session_state.changes_df = changes_df
+        df.to_csv(DATA_FILE,index=False)
+        changes.to_csv(CHANGE_FILE,index=False)
 
-        st.success("Change analysis completed")
+        # version log
+        log_entry = pd.DataFrame({
+            "Timestamp":[datetime.now()],
+            "Rows":[len(df)],
+            "Changes":[len(changes)]
+        })
 
-# Override with session data
-if "latest_df" in st.session_state:
-    latest_df = st.session_state.latest_df
+        if os.path.exists(LOG_FILE):
+            log_entry.to_csv(LOG_FILE,mode='a',header=False,index=False)
+        else:
+            log_entry.to_csv(LOG_FILE,index=False)
 
-if "changes_df" in st.session_state:
-    changes_df = st.session_state.changes_df
+        st.success("Change analysis completed and saved")
 
-# ---------------- EXECUTIVE DASHBOARD ---------------- #
+    latest_df = df
+    changes_df = load_csv_safe(CHANGE_FILE)
+    log_df = load_csv_safe(LOG_FILE)
+
+# ---------------- EXEC DASHBOARD ---------------- #
 
 if page=="Executive Dashboard":
 
     if latest_df is not None:
 
-        col1,col2=st.columns(2)
+        col1,col2,col3 = st.columns(3)
 
         col1.metric("Total Tests",len(latest_df))
 
-        open_tests=latest_df[
+        open_tests = latest_df[
             latest_df["TESTS__STATUS"].astype(str)
             .str.lower()
             .str.contains("open",na=False)
@@ -149,13 +138,16 @@ if page=="Executive Dashboard":
 
         col2.metric("Open Tests",open_tests)
 
-        c1,c2=st.columns(2)
+        if log_df is not None:
+            col3.metric("Last Updated", str(log_df.iloc[-1]["Timestamp"])[:19])
+
+        c1,c2 = st.columns(2)
 
         with c1:
-            st.plotly_chart(px.pie(latest_df,names="TESTS__STATUS",hole=0.4))
+            st.plotly_chart(px.pie(latest_df,names="TESTS__STATUS",hole=0.4),use_container_width=True)
 
         with c2:
-            st.plotly_chart(px.bar(latest_df["TESTS__STATUS"].value_counts()))
+            st.plotly_chart(px.bar(latest_df["TESTS__STATUS"].value_counts()),use_container_width=True)
 
     else:
         st.warning("No data available")
@@ -164,15 +156,76 @@ if page=="Executive Dashboard":
 
 elif page=="Change Analysis":
 
-    if changes_df is None:
-        st.info("Upload two files to see change analysis")
+    if changes_df is None or changes_df.empty:
+        st.info("No changes detected")
     else:
-        st.dataframe(changes_df,use_container_width=True)
-        st.plotly_chart(px.bar(changes_df["Field Changed"].value_counts()))
+
+        st.subheader("Change Analysis")
+
+        # FILTER
+        field_filter = st.selectbox(
+            "Filter by Field",
+            ["All"] + sorted(changes_df["Field Changed"].unique().tolist())
+        )
+
+        filtered = changes_df.copy()
+
+        if field_filter != "All":
+            filtered = filtered[filtered["Field Changed"]==field_filter]
+
+        # KPIs
+        col1,col2,col3 = st.columns(3)
+
+        col1.metric("Total Status Changes",
+            len(filtered[filtered["Field Changed"]=="TESTS__STATUS"])
+        )
+
+        col2.metric("Unique Tests Impacted",
+            filtered["Test Name"].nunique()
+        )
+
+        col3.metric("Fields Changed",
+            filtered["Field Changed"].nunique()
+        )
+
+        st.dataframe(filtered,use_container_width=True)
+
+        st.plotly_chart(
+            px.bar(filtered["Field Changed"].value_counts(),
+            title="Changes by Field"),
+            use_container_width=True
+        )
+
+        # EXPORT
+        def highlight(row):
+            return ['background-color: #ffe6e6']*len(row)
+
+        styled = filtered.style.apply(highlight,axis=1)
+
+        export_file="change_output.xlsx"
+        styled.to_excel(export_file,index=False)
+
+        with open(export_file,"rb") as f:
+            st.download_button(
+                "Download Change Analysis",
+                f,
+                file_name="change_analysis.xlsx"
+            )
+
+# ---------------- HISTORY ---------------- #
+
+elif page=="Upload History":
+
+    if log_df is not None:
+        st.dataframe(log_df,use_container_width=True)
+    else:
+        st.info("No upload history available")
 
 # ---------------- RAW ---------------- #
 
 elif page=="Raw Data":
 
     if latest_df is not None:
-        st.dataframe(latest_df)
+        st.dataframe(latest_df,use_container_width=True)
+    else:
+        st.info("No data available")
