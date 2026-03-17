@@ -5,10 +5,11 @@ import plotly.express as px
 
 st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 
-# ---------------- FILES ---------------- #
+# ---------------- ONEDRIVE LINKS ---------------- #
 
-LATEST_FILE = "latest_data.csv"
-CHANGE_FILE = "change_analysis.csv"
+LATEST_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQD8IPMXGAeaT4TJjsycGI5LASf2Zb_Cemy1F-TxdLiZyQ4?download=1"
+
+CHANGE_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQDN_RRiOlGjS4Jsf81KIg8fAdmYzX0Ugw2iKb6BmgfiJr0?download=1"
 
 # ---------------- HEADER ---------------- #
 
@@ -80,18 +81,29 @@ def compare_versions(old_df,new_df):
 
     return pd.DataFrame(changes)
 
-# ---------------- LOAD EXISTING ---------------- #
+# ---------------- LOAD FROM ONEDRIVE ---------------- #
 
-latest_df = None
-changes_df = None
+@st.cache_data
+def load_latest_from_onedrive():
+    try:
+        return pd.read_csv(LATEST_URL)
+    except:
+        return None
 
-if os.path.exists(LATEST_FILE):
-    latest_df = pd.read_csv(LATEST_FILE)
+@st.cache_data
+def load_changes_from_onedrive():
+    try:
+        df = pd.read_csv(CHANGE_URL)
+        if df.empty:
+            return None
+        return df
+    except:
+        return None
 
-if os.path.exists(CHANGE_FILE):
-    changes_df = pd.read_csv(CHANGE_FILE)
-    if changes_df.empty:
-        changes_df = None
+# ---------------- INITIAL LOAD ---------------- #
+
+latest_df = load_latest_from_onedrive()
+changes_df = load_changes_from_onedrive()
 
 # ---------------- HANDLE UPLOAD ---------------- #
 
@@ -100,22 +112,23 @@ if uploaded_file:
     new_df = pd.read_excel(uploaded_file, sheet_name="IA data")
     validate_dataset(new_df)
 
-    # compare
+    # override current session
+    st.session_state.latest_df = new_df
+
     if latest_df is not None:
+        changes_df = compare_versions(latest_df.copy(), new_df.copy())
+        st.session_state.changes_df = changes_df
 
-        changes = compare_versions(latest_df.copy(), new_df.copy())
+    st.success("File uploaded (session only). Download to sync with OneDrive.")
 
-        if changes is not None and not changes.empty:
-            changes.to_csv(CHANGE_FILE, index=False)
-            changes_df = changes
+# use session override if exists
+if "latest_df" in st.session_state:
+    latest_df = st.session_state.latest_df
 
-    # save latest
-    new_df.to_csv(LATEST_FILE, index=False)
-    latest_df = new_df
+if "changes_df" in st.session_state:
+    changes_df = st.session_state.changes_df
 
-    st.success("File uploaded & synced locally")
-
-# ---------------- EXECUTIVE ---------------- #
+# ---------------- EXECUTIVE DASHBOARD ---------------- #
 
 if page=="Executive Dashboard":
 
@@ -149,32 +162,28 @@ if page=="Executive Dashboard":
 elif page=="Change Analysis":
 
     if changes_df is None:
-
-        st.info("Upload at least two dashboards")
-
+        st.info("No change analysis available")
     else:
-
         st.dataframe(changes_df,use_container_width=True)
-
         st.plotly_chart(px.bar(changes_df["Field Changed"].value_counts()))
 
-# ---------------- DOWNLOAD SYNC ---------------- #
+# ---------------- DOWNLOAD FOR SYNC ---------------- #
 
 st.sidebar.markdown("### 🔄 Sync with OneDrive")
 
-if os.path.exists(LATEST_FILE):
-    with open(LATEST_FILE,"rb") as f:
-        st.sidebar.download_button("Download Latest Data",f,"latest_data.csv")
+if latest_df is not None:
+    st.sidebar.download_button(
+        "Download Latest Data",
+        latest_df.to_csv(index=False),
+        "latest_data.csv"
+    )
 
-if os.path.exists(CHANGE_FILE):
-    with open(CHANGE_FILE,"rb") as f:
-        st.sidebar.download_button("Download Change Analysis",f,"change_analysis.csv")
-
-# ---------------- HISTORY ---------------- #
-
-elif page=="Upload History":
-
-    st.write("Local storage active")
+if changes_df is not None:
+    st.sidebar.download_button(
+        "Download Change Analysis",
+        changes_df.to_csv(index=False),
+        "change_analysis.csv"
+    )
 
 # ---------------- RAW ---------------- #
 
