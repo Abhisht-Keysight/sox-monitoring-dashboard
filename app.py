@@ -2,17 +2,16 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+import numpy as np
 import os
 
 st.set_page_config(layout="wide")
-
-# ---------------- FILE PATHS ---------------- #
 
 DATA_FILE = "latest_data.csv"
 CHANGE_FILE = "change_analysis.csv"
 LOG_FILE = "version_log.csv"
 
-# ---------------- UI HEADER ---------------- #
+# ---------------- HEADER ---------------- #
 
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f172a,#1e3a8a);
@@ -33,20 +32,25 @@ page = st.sidebar.radio(
 
 uploaded_file = st.sidebar.file_uploader("Upload SOX Dashboard", type=["xlsx"])
 
-# ---------------- LOAD FUNCTIONS ---------------- #
+# ---------------- HELPERS ---------------- #
 
-def load_csv_safe(path):
+def normalize(val):
+    if pd.isna(val):
+        return ""
+    if isinstance(val, (pd.Timestamp, datetime)):
+        return val.strftime("%Y-%m-%d")
+    return str(val).strip()
+
+def load_csv(path):
     try:
         df = pd.read_csv(path)
-        if df.empty:
-            return None
-        return df
+        return None if df.empty else df
     except:
         return None
 
-latest_df = load_csv_safe(DATA_FILE)
-changes_df = load_csv_safe(CHANGE_FILE)
-log_df = load_csv_safe(LOG_FILE)
+latest_df = load_csv(DATA_FILE)
+changes_df = load_csv(CHANGE_FILE)
+log_df = load_csv(LOG_FILE)
 
 # ---------------- VALIDATION ---------------- #
 
@@ -59,34 +63,38 @@ def validate(df):
 
 # ---------------- COMPARE ---------------- #
 
-def compare(old_df,new_df):
+def compare(old_df, new_df):
 
-    key="Test Name"
+    key = "Test Name"
 
-    old_df[key]=old_df[key].astype(str).str.strip()
-    new_df[key]=new_df[key].astype(str).str.strip()
+    old_df = old_df.drop_duplicates(subset=[key])
+    new_df = new_df.drop_duplicates(subset=[key])
 
-    old_df=old_df.set_index(key)
-    new_df=new_df.set_index(key)
+    old_df[key] = old_df[key].astype(str).str.strip()
+    new_df[key] = new_df[key].astype(str).str.strip()
 
-    changes=[]
+    old_df = old_df.set_index(key)
+    new_df = new_df.set_index(key)
+
+    changes = []
 
     for test in old_df.index.intersection(new_df.index):
         for col in new_df.columns:
-            old=str(old_df.loc[test,col])
-            new=str(new_df.loc[test,col])
 
-            if old!=new:
+            old = normalize(old_df.loc[test, col])
+            new = normalize(new_df.loc[test, col])
+
+            if old != new:
                 changes.append({
-                    "Test Name":test,
-                    "Field Changed":col,
-                    "Old Value":old,
-                    "New Value":new
+                    "Test Name": test,
+                    "Field Changed": col,
+                    "Old Value": old,
+                    "New Value": new
                 })
 
     return pd.DataFrame(changes)
 
-# ---------------- UPLOAD LOGIC ---------------- #
+# ---------------- UPLOAD ---------------- #
 
 if uploaded_file:
 
@@ -94,31 +102,31 @@ if uploaded_file:
     validate(df)
 
     if latest_df is None:
-        df.to_csv(DATA_FILE,index=False)
+        df.to_csv(DATA_FILE, index=False)
         st.success("Base file uploaded")
+
     else:
-        changes = compare(latest_df,df)
+        changes = compare(latest_df, df)
 
-        df.to_csv(DATA_FILE,index=False)
-        changes.to_csv(CHANGE_FILE,index=False)
+        df.to_csv(DATA_FILE, index=False)
+        changes.to_csv(CHANGE_FILE, index=False)
 
-        # version log
         log_entry = pd.DataFrame({
-            "Timestamp":[datetime.now()],
+            "Timestamp":[datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
             "Rows":[len(df)],
             "Changes":[len(changes)]
         })
 
         if os.path.exists(LOG_FILE):
-            log_entry.to_csv(LOG_FILE,mode='a',header=False,index=False)
+            log_entry.to_csv(LOG_FILE, mode='a', header=False, index=False)
         else:
-            log_entry.to_csv(LOG_FILE,index=False)
+            log_entry.to_csv(LOG_FILE, index=False)
 
-        st.success("Change analysis completed and saved")
+        st.success("Change analysis completed")
 
     latest_df = df
-    changes_df = load_csv_safe(CHANGE_FILE)
-    log_df = load_csv_safe(LOG_FILE)
+    changes_df = load_csv(CHANGE_FILE)
+    log_df = load_csv(LOG_FILE)
 
 # ---------------- EXEC DASHBOARD ---------------- #
 
@@ -128,26 +136,29 @@ if page=="Executive Dashboard":
 
         col1,col2,col3 = st.columns(3)
 
-        col1.metric("Total Tests",len(latest_df))
+        col1.metric("Total Tests", len(latest_df))
 
         open_tests = latest_df[
             latest_df["TESTS__STATUS"].astype(str)
-            .str.lower()
-            .str.contains("open",na=False)
+            .str.lower().str.contains("open", na=False)
         ].shape[0]
 
-        col2.metric("Open Tests",open_tests)
+        col2.metric("Open Tests", open_tests)
 
         if log_df is not None:
-            col3.metric("Last Updated", str(log_df.iloc[-1]["Timestamp"])[:19])
+            col3.metric("Last Updated", log_df.iloc[-1]["Timestamp"])
 
         c1,c2 = st.columns(2)
 
-        with c1:
-            st.plotly_chart(px.pie(latest_df,names="TESTS__STATUS",hole=0.4),use_container_width=True)
+        c1.plotly_chart(
+            px.pie(latest_df, names="TESTS__STATUS", hole=0.4),
+            use_container_width=True
+        )
 
-        with c2:
-            st.plotly_chart(px.bar(latest_df["TESTS__STATUS"].value_counts()),use_container_width=True)
+        c2.plotly_chart(
+            px.bar(latest_df["TESTS__STATUS"].value_counts()),
+            use_container_width=True
+        )
 
     else:
         st.warning("No data available")
@@ -158,58 +169,69 @@ elif page=="Change Analysis":
 
     if changes_df is None or changes_df.empty:
         st.info("No changes detected")
+
     else:
 
         st.subheader("Change Analysis")
 
-        # FILTER
         field_filter = st.selectbox(
             "Filter by Field",
-            ["All"] + sorted(changes_df["Field Changed"].unique().tolist())
+            ["All"] + sorted(changes_df["Field Changed"].unique())
         )
 
         filtered = changes_df.copy()
 
         if field_filter != "All":
-            filtered = filtered[filtered["Field Changed"]==field_filter]
+            filtered = filtered[filtered["Field Changed"] == field_filter]
 
-        # KPIs
         col1,col2,col3 = st.columns(3)
 
-        col1.metric("Total Status Changes",
+        col1.metric(
+            "Status Changes",
             len(filtered[filtered["Field Changed"]=="TESTS__STATUS"])
         )
 
-        col2.metric("Unique Tests Impacted",
+        col2.metric(
+            "Unique Tests",
             filtered["Test Name"].nunique()
         )
 
-        col3.metric("Fields Changed",
+        col3.metric(
+            "Fields Changed",
             filtered["Field Changed"].nunique()
         )
 
-        st.dataframe(filtered,use_container_width=True)
+        st.dataframe(filtered, use_container_width=True)
 
-        st.plotly_chart(
-            px.bar(filtered["Field Changed"].value_counts(),
-            title="Changes by Field"),
-            use_container_width=True
-        )
+        if not filtered.empty:
+            st.plotly_chart(
+                px.bar(
+                    filtered["Field Changed"].value_counts(),
+                    title="Changes by Field"
+                ),
+                use_container_width=True
+            )
 
-        # EXPORT
-        def highlight(row):
-            return ['background-color: #ffe6e6']*len(row)
+        # -------- EXPORT WITH HIGHLIGHT -------- #
 
-        styled = filtered.style.apply(highlight,axis=1)
+        export_df = latest_df.copy()
 
-        export_file="change_output.xlsx"
-        styled.to_excel(export_file,index=False)
+        for _, row in changes_df.iterrows():
+            mask = export_df["Test Name"] == row["Test Name"]
+            col = row["Field Changed"]
 
-        with open(export_file,"rb") as f:
+            export_df.loc[mask, col] = (
+                str(export_df.loc[mask, col].values[0]) + "  (CHANGED)"
+            )
+
+        export_file = "highlighted_output.xlsx"
+        export_df.to_excel(export_file, index=False)
+
+        with open(export_file, "rb") as f:
             st.download_button(
-                "Download Change Analysis",
+                "Download Full File (Highlighted Changes)",
                 f,
-                file_name="change_analysis.xlsx"
+                file_name="highlighted_changes.xlsx"
             )
 
 # ---------------- HISTORY ---------------- #
@@ -217,7 +239,7 @@ elif page=="Change Analysis":
 elif page=="Upload History":
 
     if log_df is not None:
-        st.dataframe(log_df,use_container_width=True)
+        st.dataframe(log_df, use_container_width=True)
     else:
         st.info("No upload history available")
 
@@ -226,6 +248,6 @@ elif page=="Upload History":
 elif page=="Raw Data":
 
     if latest_df is not None:
-        st.dataframe(latest_df,use_container_width=True)
+        st.dataframe(latest_df, use_container_width=True)
     else:
         st.info("No data available")
