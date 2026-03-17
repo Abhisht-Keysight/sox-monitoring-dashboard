@@ -12,13 +12,12 @@ UPLOAD_DIR = "data/uploads"
 OUTPUT_DIR = "data/output"
 LOG_FILE = "data/upload_log.csv"
 CHANGE_FILE = "data/change_analysis.csv"
+LATEST_FILE = "data/latest_data.csv"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ---------------------------------------------------
-# HEADER
-# ---------------------------------------------------
+# ---------------- HEADER ---------------- #
 
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f172a,#1e3a8a);
@@ -28,9 +27,7 @@ padding:30px;border-radius:12px;color:white;margin-bottom:20px;">
 </div>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------
-# SIDEBAR
-# ---------------------------------------------------
+# ---------------- SIDEBAR ---------------- #
 
 st.sidebar.title("Navigation")
 
@@ -41,9 +38,7 @@ page = st.sidebar.radio(
 
 uploaded_file = st.sidebar.file_uploader("Upload SOX Dashboard", type=["xlsx"])
 
-# ---------------------------------------------------
-# VALIDATE DATA
-# ---------------------------------------------------
+# ---------------- VALIDATION ---------------- #
 
 def validate_dataset(df):
 
@@ -62,16 +57,12 @@ def validate_dataset(df):
         st.error(f"Missing columns: {missing}")
         st.stop()
 
-# ---------------------------------------------------
-# SAVE FILE
-# ---------------------------------------------------
+# ---------------- SAVE FILE ---------------- #
 
 def save_file(uploaded_file):
 
     timestamp=datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
     filename=f"{timestamp}.xlsx"
-
     path=os.path.join(UPLOAD_DIR,filename)
 
     with open(path,"wb") as f:
@@ -79,9 +70,7 @@ def save_file(uploaded_file):
 
     return filename,path
 
-# ---------------------------------------------------
-# LOAD FILES
-# ---------------------------------------------------
+# ---------------- LOAD FILES ---------------- #
 
 def load_versions():
 
@@ -102,9 +91,7 @@ def load_versions():
 
     return latest_df,prev_df
 
-# ---------------------------------------------------
-# COMPARE
-# ---------------------------------------------------
+# ---------------- COMPARE ---------------- #
 
 def compare_versions(old_df,new_df):
 
@@ -123,14 +110,12 @@ def compare_versions(old_df,new_df):
     common=old_df.index.intersection(new_df.index)
 
     for test in common:
-
         for field in fields:
 
             old=str(old_df.loc[test,field])
             new=str(new_df.loc[test,field])
 
             if old!=new:
-
                 changes.append({
                     "Test Name":test,
                     "Field Changed":field,
@@ -140,9 +125,7 @@ def compare_versions(old_df,new_df):
 
     return pd.DataFrame(changes)
 
-# ---------------------------------------------------
-# HIGHLIGHT FILE
-# ---------------------------------------------------
+# ---------------- HIGHLIGHT FILE ---------------- #
 
 def generate_highlight_file(changes):
 
@@ -150,11 +133,9 @@ def generate_highlight_file(changes):
     files=[f for f in files if f.endswith(".xlsx")]
 
     latest=os.path.join(UPLOAD_DIR,files[-1])
-
     output=os.path.join(OUTPUT_DIR,"highlighted_changes.xlsx")
 
     wb=load_workbook(latest)
-
     ws=wb["IA data"]
 
     yellow=PatternFill(start_color="FFFF00",end_color="FFFF00",fill_type="solid")
@@ -171,28 +152,28 @@ def generate_highlight_file(changes):
             col=headers.index(field)+1
 
             for r in range(2,ws.max_row+1):
-
                 if ws.cell(r,headers.index("Test Name")+1).value==test:
-
                     ws.cell(r,col).fill=yellow
 
     wb.save(output)
 
     return output
 
-# ---------------------------------------------------
-# HANDLE UPLOAD
-# ---------------------------------------------------
+# ---------------- HANDLE UPLOAD ---------------- #
 
 if uploaded_file:
 
     filename,path=save_file(uploaded_file)
 
     df=pd.read_excel(path,sheet_name="IA data")
-
     validate_dataset(df)
 
     latest_df,prev_df=load_versions()
+
+    if latest_df is not None:
+
+        # SAVE latest dataset ALWAYS
+        latest_df.to_csv(LATEST_FILE,index=False)
 
     if latest_df is not None and prev_df is not None:
 
@@ -201,30 +182,36 @@ if uploaded_file:
         if not changes.empty:
             changes.to_csv(CHANGE_FILE,index=False)
 
-# ---------------------------------------------------
-# LOAD DATA SAFELY
-# ---------------------------------------------------
+# ---------------- LOAD DATA (FIXED) ---------------- #
 
-latest_df,_=load_versions()
+latest_df=None
 
+# Load persisted dataset FIRST
+if os.path.exists(LATEST_FILE):
+    try:
+        latest_df=pd.read_csv(LATEST_FILE)
+    except:
+        latest_df=None
+
+# Fallback
+if latest_df is None:
+    latest_df,_=load_versions()
+
+# Load changes safely
 changes=None
 
 if os.path.exists(CHANGE_FILE):
 
     try:
-
         changes=pd.read_csv(CHANGE_FILE)
 
         if changes.empty:
             changes=None
 
     except pd.errors.EmptyDataError:
-
         changes=None
 
-# ---------------------------------------------------
-# EXECUTIVE DASHBOARD
-# ---------------------------------------------------
+# ---------------- EXECUTIVE DASHBOARD ---------------- #
 
 if page=="Executive Dashboard":
 
@@ -248,20 +235,14 @@ if page=="Executive Dashboard":
         c1,c2=st.columns(2)
 
         with c1:
-
             fig=px.pie(latest_df,names="TESTS__STATUS",hole=0.45)
-
             st.plotly_chart(fig,use_container_width=True)
 
         with c2:
-
             fig2=px.bar(status_counts)
-
             st.plotly_chart(fig2,use_container_width=True)
 
-# ---------------------------------------------------
-# CHANGE ANALYSIS
-# ---------------------------------------------------
+# ---------------- CHANGE ANALYSIS ---------------- #
 
 elif page=="Change Analysis":
 
@@ -299,7 +280,6 @@ elif page=="Change Analysis":
         st.dataframe(filtered,use_container_width=True)
 
         fig=px.bar(filtered["Field Changed"].value_counts())
-
         st.plotly_chart(fig,use_container_width=True)
 
         if st.button("Download Highlighted Excel"):
@@ -307,29 +287,19 @@ elif page=="Change Analysis":
             path=generate_highlight_file(changes)
 
             with open(path,"rb") as f:
+                st.download_button("Download Excel",f,
+                                   file_name="highlighted_changes.xlsx")
 
-                st.download_button(
-                    "Download Excel",
-                    f,
-                    file_name="highlighted_changes.xlsx"
-                )
-
-# ---------------------------------------------------
-# HISTORY
-# ---------------------------------------------------
+# ---------------- HISTORY ---------------- #
 
 elif page=="Upload History":
 
     files=os.listdir(UPLOAD_DIR)
-
     st.write(pd.DataFrame(files,columns=["Uploaded Files"]))
 
-# ---------------------------------------------------
-# RAW DATA
-# ---------------------------------------------------
+# ---------------- RAW DATA ---------------- #
 
 elif page=="Raw Data":
 
     if latest_df is not None:
-
         st.dataframe(latest_df)
