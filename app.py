@@ -8,13 +8,13 @@ from openpyxl.styles import PatternFill
 
 st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 
-# ---------------- PATHS ---------------- #
+# ---------------- FILE STORAGE ---------------- #
 
+LATEST_FILE = "latest_data.csv"
+CHANGE_FILE = "change_analysis.csv"
 UPLOAD_DIR = "data/uploads"
-OUTPUT_DIR = "data/output"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ---------------- HEADER ---------------- #
 
@@ -56,41 +56,6 @@ def validate_dataset(df):
         st.error(f"Missing columns: {missing}")
         st.stop()
 
-# ---------------- SAVE FILE ---------------- #
-
-def save_file(uploaded_file):
-
-    timestamp=datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename=f"{timestamp}.xlsx"
-    path=os.path.join(UPLOAD_DIR,filename)
-
-    with open(path,"wb") as f:
-        f.write(uploaded_file.getbuffer())
-
-    return filename,path
-
-# ---------------- LOAD LATEST ---------------- #
-
-def load_latest_data():
-
-    # session priority
-    if "latest_df" in st.session_state:
-        return st.session_state.latest_df
-
-    # fallback local
-    try:
-        files = sorted(os.listdir(UPLOAD_DIR))
-        files = [f for f in files if f.endswith(".xlsx")]
-
-        if files:
-            latest_file = os.path.join(UPLOAD_DIR, files[-1])
-            df = pd.read_excel(latest_file, sheet_name="IA data")
-            return df
-    except:
-        pass
-
-    return None
-
 # ---------------- COMPARE ---------------- #
 
 def compare_versions(old_df,new_df):
@@ -103,104 +68,64 @@ def compare_versions(old_df,new_df):
     old_df=old_df.set_index(key)
     new_df=new_df.set_index(key)
 
-    fields=list(new_df.columns)
-
     changes=[]
 
-    common=old_df.index.intersection(new_df.index)
+    for test in old_df.index.intersection(new_df.index):
+        for col in new_df.columns:
 
-    for test in common:
-        for field in fields:
-
-            old=str(old_df.loc[test,field])
-            new=str(new_df.loc[test,field])
+            old=str(old_df.loc[test,col])
+            new=str(new_df.loc[test,col])
 
             if old!=new:
                 changes.append({
                     "Test Name":test,
-                    "Field Changed":field,
+                    "Field Changed":col,
                     "Old Value":old,
                     "New Value":new
                 })
 
     return pd.DataFrame(changes)
 
-# ---------------- RUN ANALYSIS ---------------- #
+# ---------------- LOAD EXISTING ---------------- #
 
-def run_change_analysis():
+latest_df = None
+changes_df = None
 
-    files = sorted(os.listdir(UPLOAD_DIR))
-    files = [f for f in files if f.endswith(".xlsx")]
+if os.path.exists(LATEST_FILE):
+    try:
+        latest_df = pd.read_csv(LATEST_FILE)
+    except:
+        latest_df = None
 
-    if len(files) < 2:
-        return None
-
-    latest = os.path.join(UPLOAD_DIR, files[-1])
-    previous = os.path.join(UPLOAD_DIR, files[-2])
-
-    new_df = pd.read_excel(latest, sheet_name="IA data")
-    old_df = pd.read_excel(previous, sheet_name="IA data")
-
-    return compare_versions(old_df, new_df)
-
-# ---------------- HIGHLIGHT ---------------- #
-
-def generate_highlight_file(changes):
-
-    files=sorted(os.listdir(UPLOAD_DIR))
-    files=[f for f in files if f.endswith(".xlsx")]
-
-    latest=os.path.join(UPLOAD_DIR,files[-1])
-    output=os.path.join(OUTPUT_DIR,"highlighted_changes.xlsx")
-
-    wb=load_workbook(latest)
-    ws=wb["IA data"]
-
-    yellow=PatternFill(start_color="FFFF00",end_color="FFFF00",fill_type="solid")
-
-    headers=[cell.value for cell in ws[1]]
-
-    for _,row in changes.iterrows():
-
-        test=row["Test Name"]
-        field=row["Field Changed"]
-
-        if field in headers:
-
-            col=headers.index(field)+1
-
-            for r in range(2,ws.max_row+1):
-                if ws.cell(r,headers.index("Test Name")+1).value==test:
-                    ws.cell(r,col).fill=yellow
-
-    wb.save(output)
-
-    return output
+if os.path.exists(CHANGE_FILE):
+    try:
+        changes_df = pd.read_csv(CHANGE_FILE)
+        if changes_df.empty:
+            changes_df = None
+    except:
+        changes_df = None
 
 # ---------------- HANDLE UPLOAD ---------------- #
 
 if uploaded_file:
 
-    filename,path=save_file(uploaded_file)
+    new_df = pd.read_excel(uploaded_file, sheet_name="IA data")
+    validate_dataset(new_df)
 
-    df = pd.read_excel(path, sheet_name="IA data")
-    validate_dataset(df)
+    # Compare if previous exists
+    if latest_df is not None:
 
-    # store latest
-    st.session_state.latest_df = df
+        changes = compare_versions(latest_df.copy(), new_df.copy())
 
-    # run analysis
-    changes = run_change_analysis()
+        if changes is not None and not changes.empty:
+            changes.to_csv(CHANGE_FILE, index=False)
+            changes_df = changes
 
-    if changes is not None and not changes.empty:
-        st.session_state.changes = changes
+    # Save latest always
+    new_df.to_csv(LATEST_FILE, index=False)
+    latest_df = new_df
 
-    st.success("File uploaded successfully & analysis updated")
-
-# ---------------- LOAD ---------------- #
-
-latest_df = load_latest_data()
-changes = st.session_state.get("changes", None)
+    st.success("File uploaded & data persisted successfully")
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
@@ -221,8 +146,6 @@ if page=="Executive Dashboard":
         col1.metric("Total Tests",total)
         col2.metric("Open Tests",open_tests)
 
-        status_counts=latest_df["TESTS__STATUS"].value_counts()
-
         c1,c2=st.columns(2)
 
         with c1:
@@ -230,7 +153,7 @@ if page=="Executive Dashboard":
             st.plotly_chart(fig,use_container_width=True)
 
         with c2:
-            fig2=px.bar(status_counts)
+            fig2=px.bar(latest_df["TESTS__STATUS"].value_counts())
             st.plotly_chart(fig2,use_container_width=True)
 
     else:
@@ -242,7 +165,7 @@ elif page=="Change Analysis":
 
     st.subheader("Changes Since Last Upload")
 
-    if changes is None or changes.empty:
+    if changes_df is None:
 
         st.info("Upload at least two dashboards to detect changes")
 
@@ -250,10 +173,10 @@ elif page=="Change Analysis":
 
         col1,col2=st.columns(2)
 
-        test_filter=col1.multiselect("Test Name",changes["Test Name"].unique())
-        field_filter=col2.multiselect("Field Changed",changes["Field Changed"].unique())
+        test_filter=col1.multiselect("Test Name",changes_df["Test Name"].unique())
+        field_filter=col2.multiselect("Field Changed",changes_df["Field Changed"].unique())
 
-        filtered=changes.copy()
+        filtered=changes_df.copy()
 
         if test_filter:
             filtered=filtered[filtered["Test Name"].isin(test_filter)]
@@ -261,35 +184,25 @@ elif page=="Change Analysis":
         if field_filter:
             filtered=filtered[filtered["Field Changed"].isin(field_filter)]
 
-        status_changes=len(filtered[filtered["Field Changed"]=="TESTS__STATUS"])
-        tests_affected=filtered["Test Name"].nunique()
-        fields_changed=filtered["Field Changed"].nunique()
-
         k1,k2,k3=st.columns(3)
 
-        k1.metric("Status Changes",status_changes)
-        k2.metric("Unique Tests Affected",tests_affected)
-        k3.metric("Fields With Changes",fields_changed)
+        k1.metric("Status Changes",len(filtered[filtered["Field Changed"]=="TESTS__STATUS"]))
+        k2.metric("Unique Tests Affected",filtered["Test Name"].nunique())
+        k3.metric("Fields Changed",filtered["Field Changed"].nunique())
 
         st.dataframe(filtered,use_container_width=True)
 
         fig=px.bar(filtered["Field Changed"].value_counts())
         st.plotly_chart(fig,use_container_width=True)
 
-        if st.button("Download Highlighted Excel"):
-
-            path=generate_highlight_file(changes)
-
-            with open(path,"rb") as f:
-                st.download_button("Download Excel",f,
-                                   file_name="highlighted_changes.xlsx")
-
 # ---------------- HISTORY ---------------- #
 
 elif page=="Upload History":
 
-    files=os.listdir(UPLOAD_DIR)
-    st.write(pd.DataFrame(files,columns=["Uploaded Files"]))
+    if os.path.exists(LATEST_FILE):
+        st.success("Latest file stored")
+    else:
+        st.info("No uploads yet")
 
 # ---------------- RAW DATA ---------------- #
 
