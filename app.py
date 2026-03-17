@@ -338,3 +338,12 @@ elif page=="Raw Data":
 
     if latest_df is not None:
         st.dataframe(latest_df)
+import os
+
+if os.path.exists("data/latest_data.csv"):
+    with open("data/latest_data.csv", "rb") as f:
+        st.download_button("Download Latest Data", f, "latest_data.csv")
+
+if os.path.exists("data/change_analysis.csv"):
+    with open("data/change_analysis.csv", "rb") as f:
+        st.download_button("Download Change Analysis", f, "change_analysis.csv")
