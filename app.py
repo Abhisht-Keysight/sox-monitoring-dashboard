@@ -9,17 +9,20 @@ from openpyxl.styles import PatternFill
 
 st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 
-# ---------------- FILE PATHS ---------------- #
+# ---------------- PATHS ---------------- #
 
 UPLOAD_DIR = "data/uploads"
 OUTPUT_DIR = "data/output"
 LOG_FILE = "data/upload_log.csv"
-CHANGE_FILE = "data/change_analysis.csv"
-LATEST_FILE = "data/latest_data.csv"
-STATE_FILE = "data/app_state.json"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# ---------------- ONEDRIVE LINKS ---------------- #
+
+LATEST_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQD8IPMXGAeaT4TJjsycGI5LASf2Zb_Cemy1F-TxdLiZyQ4?download=1"
+
+CHANGE_URL = "https://keysighttech-my.sharepoint.com/:x:/g/personal/abhisht_pandey_keysight_com/IQDN_RRiOlGjS4Jsf81KIg8fAdmYzX0Ugw2iKb6BmgfiJr0?download=1"
 
 # ---------------- HEADER ---------------- #
 
@@ -45,6 +48,7 @@ uploaded_file = st.sidebar.file_uploader("Upload SOX Dashboard", type=["xlsx"])
 # ---------------- VALIDATION ---------------- #
 
 def validate_dataset(df):
+
     required = [
         "PROCESS_UID","CYCLE","Test Name",
         "TESTS__TEST_SECTION","TESTS__STATUS",
@@ -63,6 +67,7 @@ def validate_dataset(df):
 # ---------------- SAVE FILE ---------------- #
 
 def save_file(uploaded_file):
+
     timestamp=datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename=f"{timestamp}.xlsx"
     path=os.path.join(UPLOAD_DIR,filename)
@@ -72,25 +77,23 @@ def save_file(uploaded_file):
 
     return filename,path
 
-# ---------------- LOAD FILES ---------------- #
+# ---------------- LOAD FROM ONEDRIVE ---------------- #
 
-def load_versions():
-    files=sorted(os.listdir(UPLOAD_DIR))
-    files=[f for f in files if f.endswith(".xlsx")]
+def load_latest_data():
+    try:
+        df = pd.read_csv(LATEST_URL)
+        return df
+    except:
+        return None
 
-    if len(files)==0:
-        return None,None
-
-    latest=os.path.join(UPLOAD_DIR,files[-1])
-    latest_df=pd.read_excel(latest,sheet_name="IA data")
-
-    prev_df=None
-
-    if len(files)>1:
-        prev=os.path.join(UPLOAD_DIR,files[-2])
-        prev_df=pd.read_excel(prev,sheet_name="IA data")
-
-    return latest_df,prev_df
+def load_changes():
+    try:
+        df = pd.read_csv(CHANGE_URL)
+        if df.empty:
+            return None
+        return df
+    except:
+        return None
 
 # ---------------- COMPARE ---------------- #
 
@@ -125,24 +128,6 @@ def compare_versions(old_df,new_df):
                 })
 
     return pd.DataFrame(changes)
-
-# ---------------- UPLOAD LOG ---------------- #
-
-def update_upload_log(filename, df):
-
-    entry = {
-        "File": filename,
-        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Rows": len(df)
-    }
-
-    if os.path.exists(LOG_FILE):
-        log = pd.read_csv(LOG_FILE)
-        log = pd.concat([log, pd.DataFrame([entry])], ignore_index=True)
-    else:
-        log = pd.DataFrame([entry])
-
-    log.to_csv(LOG_FILE, index=False)
 
 # ---------------- HIGHLIGHT FILE ---------------- #
 
@@ -187,58 +172,12 @@ if uploaded_file:
     df=pd.read_excel(path,sheet_name="IA data")
     validate_dataset(df)
 
-    update_upload_log(filename, df)
-
-    latest_df,prev_df=load_versions()
-
-    if latest_df is not None:
-        latest_df.to_csv(LATEST_FILE,index=False)
-
-    if latest_df is not None and prev_df is not None:
-
-        changes=compare_versions(prev_df,latest_df)
-
-        if not changes.empty:
-
-            changes.to_csv(CHANGE_FILE,index=False)
-
-            state = {
-                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "rows": len(changes)
-            }
-
-            with open(STATE_FILE,"w") as f:
-                json.dump(state,f)
+    st.success("File uploaded successfully (Note: OneDrive not auto-updated yet)")
 
 # ---------------- LOAD DATA ---------------- #
 
-latest_df=None
-changes=None
-state_info=None
-
-if os.path.exists(LATEST_FILE):
-    try:
-        latest_df=pd.read_csv(LATEST_FILE)
-    except:
-        latest_df=None
-
-if latest_df is None:
-    latest_df,_=load_versions()
-
-if os.path.exists(CHANGE_FILE):
-    try:
-        changes=pd.read_csv(CHANGE_FILE)
-        if changes.empty:
-            changes=None
-    except:
-        changes=None
-
-if os.path.exists(STATE_FILE):
-    try:
-        with open(STATE_FILE,"r") as f:
-            state_info=json.load(f)
-    except:
-        state_info=None
+latest_df = load_latest_data()
+changes = load_changes()
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
@@ -271,18 +210,18 @@ if page=="Executive Dashboard":
             fig2=px.bar(status_counts)
             st.plotly_chart(fig2,use_container_width=True)
 
+    else:
+        st.warning("No data found in OneDrive")
+
 # ---------------- CHANGE ANALYSIS ---------------- #
 
 elif page=="Change Analysis":
 
     st.subheader("Changes Since Last Upload")
 
-    if state_info:
-        st.success(f"Last Analysis: {state_info['last_updated']} | Changes: {state_info['rows']}")
-
     if changes is None:
 
-        st.info("Upload at least two dashboards to detect changes")
+        st.info("No change analysis available in OneDrive")
 
     else:
 
@@ -326,11 +265,8 @@ elif page=="Change Analysis":
 
 elif page=="Upload History":
 
-    if os.path.exists(LOG_FILE):
-        log=pd.read_csv(LOG_FILE)
-        st.dataframe(log,use_container_width=True)
-    else:
-        st.info("No uploads yet")
+    files=os.listdir(UPLOAD_DIR)
+    st.write(pd.DataFrame(files,columns=["Uploaded Files"]))
 
 # ---------------- RAW DATA ---------------- #
 
@@ -338,12 +274,3 @@ elif page=="Raw Data":
 
     if latest_df is not None:
         st.dataframe(latest_df)
-import os
-
-if os.path.exists("data/latest_data.csv"):
-    with open("data/latest_data.csv", "rb") as f:
-        st.download_button("Download Latest Data", f, "latest_data.csv")
-
-if os.path.exists("data/change_analysis.csv"):
-    with open("data/change_analysis.csv", "rb") as f:
-        st.download_button("Download Change Analysis", f, "change_analysis.csv")
