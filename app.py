@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import json
 from datetime import datetime
 import plotly.express as px
 from openpyxl import load_workbook
@@ -8,11 +9,14 @@ from openpyxl.styles import PatternFill
 
 st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 
+# ---------------- FILE PATHS ---------------- #
+
 UPLOAD_DIR = "data/uploads"
 OUTPUT_DIR = "data/output"
 LOG_FILE = "data/upload_log.csv"
 CHANGE_FILE = "data/change_analysis.csv"
 LATEST_FILE = "data/latest_data.csv"
+STATE_FILE = "data/app_state.json"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -41,7 +45,6 @@ uploaded_file = st.sidebar.file_uploader("Upload SOX Dashboard", type=["xlsx"])
 # ---------------- VALIDATION ---------------- #
 
 def validate_dataset(df):
-
     required = [
         "PROCESS_UID","CYCLE","Test Name",
         "TESTS__TEST_SECTION","TESTS__STATUS",
@@ -60,7 +63,6 @@ def validate_dataset(df):
 # ---------------- SAVE FILE ---------------- #
 
 def save_file(uploaded_file):
-
     timestamp=datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename=f"{timestamp}.xlsx"
     path=os.path.join(UPLOAD_DIR,filename)
@@ -73,7 +75,6 @@ def save_file(uploaded_file):
 # ---------------- LOAD FILES ---------------- #
 
 def load_versions():
-
     files=sorted(os.listdir(UPLOAD_DIR))
     files=[f for f in files if f.endswith(".xlsx")]
 
@@ -125,6 +126,24 @@ def compare_versions(old_df,new_df):
 
     return pd.DataFrame(changes)
 
+# ---------------- UPLOAD LOG ---------------- #
+
+def update_upload_log(filename, df):
+
+    entry = {
+        "File": filename,
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Rows": len(df)
+    }
+
+    if os.path.exists(LOG_FILE):
+        log = pd.read_csv(LOG_FILE)
+        log = pd.concat([log, pd.DataFrame([entry])], ignore_index=True)
+    else:
+        log = pd.DataFrame([entry])
+
+    log.to_csv(LOG_FILE, index=False)
+
 # ---------------- HIGHLIGHT FILE ---------------- #
 
 def generate_highlight_file(changes):
@@ -168,11 +187,11 @@ if uploaded_file:
     df=pd.read_excel(path,sheet_name="IA data")
     validate_dataset(df)
 
+    update_upload_log(filename, df)
+
     latest_df,prev_df=load_versions()
 
     if latest_df is not None:
-
-        # SAVE latest dataset ALWAYS
         latest_df.to_csv(LATEST_FILE,index=False)
 
     if latest_df is not None and prev_df is not None:
@@ -180,36 +199,46 @@ if uploaded_file:
         changes=compare_versions(prev_df,latest_df)
 
         if not changes.empty:
+
             changes.to_csv(CHANGE_FILE,index=False)
 
-# ---------------- LOAD DATA (FIXED) ---------------- #
+            state = {
+                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "rows": len(changes)
+            }
+
+            with open(STATE_FILE,"w") as f:
+                json.dump(state,f)
+
+# ---------------- LOAD DATA ---------------- #
 
 latest_df=None
+changes=None
+state_info=None
 
-# Load persisted dataset FIRST
 if os.path.exists(LATEST_FILE):
     try:
         latest_df=pd.read_csv(LATEST_FILE)
     except:
         latest_df=None
 
-# Fallback
 if latest_df is None:
     latest_df,_=load_versions()
 
-# Load changes safely
-changes=None
-
 if os.path.exists(CHANGE_FILE):
-
     try:
         changes=pd.read_csv(CHANGE_FILE)
-
         if changes.empty:
             changes=None
-
-    except pd.errors.EmptyDataError:
+    except:
         changes=None
+
+if os.path.exists(STATE_FILE):
+    try:
+        with open(STATE_FILE,"r") as f:
+            state_info=json.load(f)
+    except:
+        state_info=None
 
 # ---------------- EXECUTIVE DASHBOARD ---------------- #
 
@@ -247,6 +276,9 @@ if page=="Executive Dashboard":
 elif page=="Change Analysis":
 
     st.subheader("Changes Since Last Upload")
+
+    if state_info:
+        st.success(f"Last Analysis: {state_info['last_updated']} | Changes: {state_info['rows']}")
 
     if changes is None:
 
@@ -294,8 +326,11 @@ elif page=="Change Analysis":
 
 elif page=="Upload History":
 
-    files=os.listdir(UPLOAD_DIR)
-    st.write(pd.DataFrame(files,columns=["Uploaded Files"]))
+    if os.path.exists(LOG_FILE):
+        log=pd.read_csv(LOG_FILE)
+        st.dataframe(log,use_container_width=True)
+    else:
+        st.info("No uploads yet")
 
 # ---------------- RAW DATA ---------------- #
 
