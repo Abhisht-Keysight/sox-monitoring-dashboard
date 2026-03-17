@@ -1,20 +1,14 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
 import plotly.express as px
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
 
 st.set_page_config(page_title="SOX Control Monitoring Platform", layout="wide")
 
-# ---------------- FILE STORAGE ---------------- #
+# ---------------- FILES ---------------- #
 
 LATEST_FILE = "latest_data.csv"
 CHANGE_FILE = "change_analysis.csv"
-UPLOAD_DIR = "data/uploads"
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ---------------- HEADER ---------------- #
 
@@ -92,17 +86,11 @@ latest_df = None
 changes_df = None
 
 if os.path.exists(LATEST_FILE):
-    try:
-        latest_df = pd.read_csv(LATEST_FILE)
-    except:
-        latest_df = None
+    latest_df = pd.read_csv(LATEST_FILE)
 
 if os.path.exists(CHANGE_FILE):
-    try:
-        changes_df = pd.read_csv(CHANGE_FILE)
-        if changes_df.empty:
-            changes_df = None
-    except:
+    changes_df = pd.read_csv(CHANGE_FILE)
+    if changes_df.empty:
         changes_df = None
 
 # ---------------- HANDLE UPLOAD ---------------- #
@@ -112,7 +100,7 @@ if uploaded_file:
     new_df = pd.read_excel(uploaded_file, sheet_name="IA data")
     validate_dataset(new_df)
 
-    # Compare if previous exists
+    # compare
     if latest_df is not None:
 
         changes = compare_versions(latest_df.copy(), new_df.copy())
@@ -121,13 +109,13 @@ if uploaded_file:
             changes.to_csv(CHANGE_FILE, index=False)
             changes_df = changes
 
-    # Save latest always
+    # save latest
     new_df.to_csv(LATEST_FILE, index=False)
     latest_df = new_df
 
-    st.success("File uploaded & data persisted successfully")
+    st.success("File uploaded & synced locally")
 
-# ---------------- EXECUTIVE DASHBOARD ---------------- #
+# ---------------- EXECUTIVE ---------------- #
 
 if page=="Executive Dashboard":
 
@@ -135,7 +123,7 @@ if page=="Executive Dashboard":
 
         col1,col2=st.columns(2)
 
-        total=len(latest_df)
+        col1.metric("Total Tests",len(latest_df))
 
         open_tests=latest_df[
             latest_df["TESTS__STATUS"].astype(str)
@@ -143,18 +131,15 @@ if page=="Executive Dashboard":
             .str.contains("open",na=False)
         ].shape[0]
 
-        col1.metric("Total Tests",total)
         col2.metric("Open Tests",open_tests)
 
         c1,c2=st.columns(2)
 
         with c1:
-            fig=px.pie(latest_df,names="TESTS__STATUS",hole=0.45)
-            st.plotly_chart(fig,use_container_width=True)
+            st.plotly_chart(px.pie(latest_df,names="TESTS__STATUS",hole=0.4))
 
         with c2:
-            fig2=px.bar(latest_df["TESTS__STATUS"].value_counts())
-            st.plotly_chart(fig2,use_container_width=True)
+            st.plotly_chart(px.bar(latest_df["TESTS__STATUS"].value_counts()))
 
     else:
         st.warning("No data available")
@@ -163,48 +148,35 @@ if page=="Executive Dashboard":
 
 elif page=="Change Analysis":
 
-    st.subheader("Changes Since Last Upload")
-
     if changes_df is None:
 
-        st.info("Upload at least two dashboards to detect changes")
+        st.info("Upload at least two dashboards")
 
     else:
 
-        col1,col2=st.columns(2)
+        st.dataframe(changes_df,use_container_width=True)
 
-        test_filter=col1.multiselect("Test Name",changes_df["Test Name"].unique())
-        field_filter=col2.multiselect("Field Changed",changes_df["Field Changed"].unique())
+        st.plotly_chart(px.bar(changes_df["Field Changed"].value_counts()))
 
-        filtered=changes_df.copy()
+# ---------------- DOWNLOAD SYNC ---------------- #
 
-        if test_filter:
-            filtered=filtered[filtered["Test Name"].isin(test_filter)]
+st.sidebar.markdown("### 🔄 Sync with OneDrive")
 
-        if field_filter:
-            filtered=filtered[filtered["Field Changed"].isin(field_filter)]
+if os.path.exists(LATEST_FILE):
+    with open(LATEST_FILE,"rb") as f:
+        st.sidebar.download_button("Download Latest Data",f,"latest_data.csv")
 
-        k1,k2,k3=st.columns(3)
-
-        k1.metric("Status Changes",len(filtered[filtered["Field Changed"]=="TESTS__STATUS"]))
-        k2.metric("Unique Tests Affected",filtered["Test Name"].nunique())
-        k3.metric("Fields Changed",filtered["Field Changed"].nunique())
-
-        st.dataframe(filtered,use_container_width=True)
-
-        fig=px.bar(filtered["Field Changed"].value_counts())
-        st.plotly_chart(fig,use_container_width=True)
+if os.path.exists(CHANGE_FILE):
+    with open(CHANGE_FILE,"rb") as f:
+        st.sidebar.download_button("Download Change Analysis",f,"change_analysis.csv")
 
 # ---------------- HISTORY ---------------- #
 
 elif page=="Upload History":
 
-    if os.path.exists(LATEST_FILE):
-        st.success("Latest file stored")
-    else:
-        st.info("No uploads yet")
+    st.write("Local storage active")
 
-# ---------------- RAW DATA ---------------- #
+# ---------------- RAW ---------------- #
 
 elif page=="Raw Data":
 
